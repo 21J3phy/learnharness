@@ -67,6 +67,9 @@ export function resolveAppearance(delta: AppearanceSettings | undefined) {
  *  one fills in otherwise. Exported for the font menu and tests. */
 export const BUNDLED_READING_FONTS: Readonly<Record<string, string>> = {
 	"JetBrains Mono": "var(--font-jetbrains)",
+	"Source Sans 3": "var(--font-sans3)",
+	"Lora": "var(--font-lora)",
+	"Poppins": "var(--font-poppins)",
 };
 
 /** THE mapping: resolved appearance + active theme → the CSS variables to

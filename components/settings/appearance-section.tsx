@@ -50,7 +50,7 @@ import { CommitInput, SettingsMenuTrigger, SettingsRow, Toggle } from "./control
 
 /** The factory reading family — the DEFAULT row's identity (unset =
  *  this). Exported for tests. */
-export const DEFAULT_READING_FONT = "Source Sans 3";
+export const DEFAULT_READING_FONT = "Tiempos (Lora)";
 
 /** The dev-browser fallback list (queryLocalFonts is absent there):
  *  the app's own knowns plus a handful of ubiquitous macOS families,
@@ -60,6 +60,7 @@ export const DEFAULT_READING_FONT = "Source Sans 3";
 export const CURATED_FALLBACK_FONTS: readonly string[] = [
 	"Arial",
 	"CMU Serif",
+	"Source Sans 3",
 	"Courier New",
 	"Georgia",
 	"Helvetica",

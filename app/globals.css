@@ -27,7 +27,8 @@
 	outline: none;
 }
 
-/* Palette: this fork's default theme is Paper (light) — see
+/* Palette: this fork's default theme is Paper — Anthropic's ivory page,
+   near-black ink and clay accent — see
    BUILTIN_THEMES[0] in src/core/themes.ts. The literals below are its
    colors, the fallback before the active theme's inline variables land.
    Mono chrome = JetBrains Mono; prose = Source Sans 3; titles = CMU Serif.
@@ -40,38 +41,38 @@
 .dark {
 	color-scheme: light;
 	--radius: 8px;
-	--background: #fcfcfd;
-	--foreground: #1a2130;
-	--card: #f2f4f7;
-	--card-foreground: #1a2130;
-	--popover: #f2f4f7;
-	--popover-foreground: #1a2130;
-	--primary: #1a2130;
-	--primary-foreground: #fcfcfd;
-	--secondary: #f2f4f7;
-	--secondary-foreground: #1a2130;
-	--muted: #f2f4f7;
-	--muted-foreground: #667085;
-	--accent: #e4e6e9;
-	--accent-foreground: #1a2130;
-	--destructive: #c8372d;
-	--border: #d3d9e3;
-	--input: #d3d9e3;
-	--ring: #2f4bc7;
+	--background: #faf9f5;
+	--foreground: #141413;
+	--card: #f0eee6;
+	--card-foreground: #141413;
+	--popover: #f0eee6;
+	--popover-foreground: #141413;
+	--primary: #141413;
+	--primary-foreground: #faf9f5;
+	--secondary: #f0eee6;
+	--secondary-foreground: #141413;
+	--muted: #f0eee6;
+	--muted-foreground: #73726c;
+	--accent: #e2e0d8;
+	--accent-foreground: #141413;
+	--destructive: #b53333;
+	--border: #dcd9cf;
+	--input: #dcd9cf;
+	--ring: #d97757;
 	/* The theme accent (rings, toggles, the selected theme card). The
 	   shadcn --accent above is the HOVER surface, not this. */
-	--lh-accent: #2f4bc7;
+	--lh-accent: #d97757;
 	/* The strong line ink: plan-map outlines, callout borders, the LH mark. */
-	--lh-line-strong: #1a2130;
+	--lh-line-strong: #141413;
 	/* Emphasis inks default to the REGULAR TEXT COLOR (owner ruling,
 	   appearance wave 2026-09-26); themes give them their own colors. */
-	--lh-ink-strong: #1a2130;
-	--lh-ink-italic: #1a2130;
-	--lh-ink-code: #2f4bc7;
+	--lh-ink-strong: #141413;
+	--lh-ink-italic: #141413;
+	--lh-ink-code: #c6613f;
 	/* Status inks (text-error, bg-success/15, border-warning/40, …). */
-	--lh-error: #c8372d;
-	--lh-success: #2f7d4f;
-	--lh-warning: #b7791f;
+	--lh-error: #b53333;
+	--lh-success: #788c5d;
+	--lh-warning: #c08a2e;
 	/* THE READING SIZE = the ladder's 16px rung (--text-lg). Can't be
 	   var()-linked: @theme inline inlines literals into utilities without
 	   emitting runtime vars — so this is the one documented duplication:
@@ -104,11 +105,14 @@
 }
 
 @theme inline {
-	/* Chrome/code = JetBrains Mono; sans surfaces follow the reading font
-	   (Source Sans 3 by default). The loading-face variables attach in
+	/* Anthropic's design language: interface text in the sans (Styrene;
+	   Poppins stands in), reading text and titles in the serif (Tiempos;
+	   Lora stands in), code in JetBrains Mono. The licensed faces are
+	   named first and used only when installed on this machine — they are
+	   never bundled. The loading-face variables attach in
 	   app/layout.tsx. Keep the sans alias pointed at the RUNTIME prose token,
 	   not the loading face, so font-sans also honors Appearance changes. */
-	--font-ui: var(--font-jetbrains), ui-monospace, SFMono-Regular, monospace;
+	--font-ui: "Anthropic Sans", "Styrene B", "Styrene A", var(--font-poppins), "Helvetica Neue", Arial, sans-serif;
 	--font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, monospace;
 	--font-sans: var(--font-prose);
 	/* The modular type ladder — each size carries its own line-height.
@@ -191,7 +195,9 @@ body {
    font takes it, and CMU (a single 700 face) snaps to its nearest
    available weight — the same rendering it already had. */
 .font-title {
-	font-weight: 900;
+	/* A regular-weight serif headline, set a little tight. */
+	font-weight: 500;
+	letter-spacing: -0.012em;
 }
 
 .lh-prose :where(strong, b) {
@@ -599,8 +605,8 @@ body {
    independently, whether titles use serif or the reading family. Non-inline
    utilities read these vars; Source Sans 3 remains the default/loading face. */
 @theme {
-	--font-prose: var(--font-sans3), ui-sans-serif, system-ui, sans-serif;
-	--font-title: "lh-cmu", serif;
+	--font-prose: "Anthropic Serif", "Tiempos Text", "Test Tiempos Text", var(--font-lora), Georgia, serif;
+	--font-title: "Anthropic Serif", "Copernicus", "Tiempos Headline", "Test Tiempos Headline", var(--font-lora), Georgia, serif;
 }
 
 /* Card enter (owner round, 2026-10-05): the transcript cards' one-shot
@@ -640,25 +646,20 @@ body {
 }
 
 /* ─── Courses (this fork) ──────────────────────────────────────────────────
-   One idea carries the course screens: a concept you hold is HIGHLIGHTED,
-   the way a student runs a highlighter down a syllabus. Solid = a full
-   stroke, shaky = the stroke only under the words, unknown = bare ink.
-   Everything else stays on the theme's own tokens, so every theme works. */
+   One idea carries the course screens: a concept you hold is MARKED, the
+   way a student runs a pen down a syllabus. Solid = a full stroke, shaky =
+   the stroke only under the words, unknown = bare ink. Everything else
+   stays on the theme's own tokens, so every theme works. */
 :root,
-.dark {
-	/* On a dark page the pen is a translucent glow. */
-	--sy-hl: #ffe45c;
-	--sy-hl-band: color-mix(in srgb, #ffe45c 30%, transparent);
+.dark,
+.light {
+	/* The pen is the theme's accent (clay on the default page), so every
+	   theme marks in its own colour: the meter's stroke is the accent
+	   itself, a highlighted word carries a soft tint of it. */
+	--sy-hl: var(--lh-accent);
+	--sy-hl-band: color-mix(in srgb, var(--lh-accent) 30%, transparent);
 	--sy-hl-ink: var(--foreground);
 	--sy-grid: color-mix(in srgb, var(--foreground) 5%, transparent);
-}
-.light {
-	/* On paper it is the pen itself. */
-	--sy-hl: #f2c800;
-	--sy-hl-band: #ffe763;
-	--sy-hl-ink: #1c1a10;
-	/* Squared paper is ruled in pale blue. */
-	--sy-grid: color-mix(in srgb, #4f74d6 13%, transparent);
 }
 
 /* A highlighter stroke behind inline text. The uneven corner radii and the
@@ -695,7 +696,7 @@ body {
 	bottom: 1px;
 	height: 12px;
 	min-width: 6px;
-	background: var(--sy-hl-band);
+	background: var(--sy-hl);
 	border-radius: 5px 2px 6px 3px / 4px 6px 3px 5px;
 	transition: width 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }

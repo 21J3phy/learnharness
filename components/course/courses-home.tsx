@@ -55,7 +55,7 @@ export function CoursesHome({ initialCourses, initialConfigured }: { initialCour
 					{empty ? (
 						<>
 							<h1 className="font-title text-[52px] leading-[1.05] tracking-[-0.01em]">Drop in your textbook.</h1>
-							<p className="mt-5 max-w-[34rem] font-sans text-lg leading-relaxed text-muted-foreground">
+							<p className="mt-5 max-w-[34rem] font-ui text-lg leading-relaxed text-muted-foreground">
 								A syllabus or lecture notes work too. You get a map of everything the course expects you to know, a short diagnostic that finds what you already do, and a day-by-day plan up to your exam.
 							</p>
 						</>
@@ -70,7 +70,7 @@ export function CoursesHome({ initialCourses, initialConfigured }: { initialCour
 
 					<div className={cn("flex flex-wrap items-center gap-x-4 gap-y-2", empty ? "mt-9" : "mt-8")}>
 						{reading ? (
-							<p className="font-sans text-base" role="status">
+							<p className="font-ui text-base" role="status">
 								Reading <span className="sy-hl">{reading}</span>… a long book takes a minute.
 							</p>
 						) : (
@@ -78,13 +78,13 @@ export function CoursesHome({ initialCourses, initialConfigured }: { initialCour
 								{empty
 									? <PrimaryButton onClick={choose}>Choose a file</PrimaryButton>
 									: <LinkButton onClick={choose} className="text-base">Start another course</LinkButton>}
-								<span className="font-sans text-sm text-muted-foreground">
+								<span className="font-ui text-sm text-muted-foreground">
 									{empty ? "or drop it anywhere on this page. PDF, Markdown or text." : "or drop a textbook or syllabus anywhere on this page."}
 								</span>
 							</>
 						)}
 					</div>
-					{refusal && <p role="alert" className="mt-3 font-sans text-sm text-error">{refusal}</p>}
+					{refusal && <p role="alert" className="mt-3 font-ui text-sm text-error">{refusal}</p>}
 					{!refusal && <ErrorNote error={action.error} className="mt-3" />}
 					{picker}
 				</main>
@@ -109,7 +109,7 @@ function CourseRow({ course }: { course: CourseSummary }) {
 			<Link href={`/course/${course.id}`} className="sy-focus -mx-3 block rounded-lg px-3 py-6 transition-colors hover:bg-accent/50">
 				<div className="flex items-baseline justify-between gap-6">
 					<h2 className="font-title text-[26px] leading-tight"><Tex>{course.title}</Tex></h2>
-					<p className="shrink-0 font-sans text-sm text-muted-foreground">
+					<p className="shrink-0 font-ui text-sm text-muted-foreground">
 						{course.nextGoal
 							? <>{course.nextGoal.title} {awayDays(course.nextGoal.daysLeft)}</>
 							: building ? "Building the map…" : course.status === "failed" ? "Needs attention" : ""}
@@ -117,7 +117,7 @@ function CourseRow({ course }: { course: CourseSummary }) {
 				</div>
 				<div className="mt-4 flex items-end gap-4">
 					<Stroke value={course.measured ? course.knowledge : 0} label={`${course.title}: ${course.measured ? `${percent}% known` : "not measured yet"}`} className="flex-1" />
-					<p className="w-12 shrink-0 text-right font-sans text-sm tabular-nums text-muted-foreground">{course.measured ? `${percent}%` : ""}</p>
+					<p className="w-12 shrink-0 text-right font-ui text-sm tabular-nums text-muted-foreground">{course.measured ? `${percent}%` : ""}</p>
 				</div>
 			</Link>
 		</li>

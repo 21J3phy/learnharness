@@ -142,20 +142,25 @@ function builtin(name: string, mode: ThemeMode, c: ThemeColors): Theme {
  *  page with soft green, purple and orange inks. NvChad Onedark: base46's
  *  onedark. */
 export const BUILTIN_THEMES: readonly Theme[] = [
-	// This fork's default: squared exam paper, blue-black ink, a
-	// ballpoint-blue accent and a red marking pen — the stationery the
-	// course screens' highlighter belongs to.
+	// This fork's default, in Anthropic's design language: a warm ivory
+	// page, near-black ink, and clay as the one accent.
 	{
 		id: DEFAULT_THEME_ID,
 		name: "Paper",
 		mode: "light",
 		builtin: true,
 		colors: {
-			background: "#fcfcfd", surface: "#f2f4f7", border: "#d3d9e3", text: "#1a2130", textMuted: "#667085",
-			accent: "#2f4bc7", bold: "#1a2130", italic: "#1a2130", code: "#2f4bc7",
-			error: "#c8372d", success: "#2f7d4f", warning: "#b7791f",
+			background: "#faf9f5", surface: "#f0eee6", border: "#dcd9cf", text: "#141413", textMuted: "#73726c",
+			accent: "#d97757", bold: "#141413", italic: "#141413", code: "#c6613f",
+			error: "#b53333", success: "#788c5d", warning: "#c08a2e",
 		},
 	},
+	// The same language after dark.
+	builtin("Slate", "dark", {
+		background: "#262624", surface: "#30302e", border: "#46453f", text: "#faf9f5", textMuted: "#b0aea5",
+		accent: "#d97757", bold: "#faf9f5", italic: "#faf9f5", code: "#e8a384",
+		error: "#e0655c", success: "#9db27f", warning: "#d9a441",
+	}),
 	// LearnHarness's original dark palette (upstream's Default).
 	builtin("Graphite", "dark", {
 		background: "#141414", surface: "#1c1c1c", border: "#434343", text: "#e6e6e6", textMuted: "#8d8d8d",

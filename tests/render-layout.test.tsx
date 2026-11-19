@@ -63,7 +63,7 @@ describe("first paint follows the theme", () => {
 		fs.rmSync(path.join(TMP_DATA, "settings.json"), { force: true });
 		const out = html();
 		assert.match(out, /<html class="light"/);
-		assert.match(out, /--background:#fcfcfd/);
+		assert.match(out, /--background:#faf9f5/);
 	});
 });
 

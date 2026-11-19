@@ -77,7 +77,7 @@ export function PageFrame({ children, aside, className }: { children: ReactNode;
 
 // ─── buttons ─────────────────────────────────────────────────────────────────
 
-const BUTTON = "sy-focus inline-flex items-center justify-center gap-2 rounded-lg font-sans font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45";
+const BUTTON = "sy-focus inline-flex items-center justify-center gap-2 rounded-lg font-ui font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45";
 
 /** The one emphatic action on a screen. */
 export function PrimaryButton({ className, ...props }: React.ComponentProps<"button">) {
@@ -90,7 +90,7 @@ export function QuietButton({ className, ...props }: React.ComponentProps<"butto
 
 /** A text-weight action that sits inside prose. */
 export function LinkButton({ className, ...props }: React.ComponentProps<"button">) {
-	return <button type="button" {...props} className={cn("sy-focus rounded-sm font-sans text-sm text-muted-foreground underline decoration-border underline-offset-4 transition-colors hover:text-foreground hover:decoration-foreground", className)} />;
+	return <button type="button" {...props} className={cn("sy-focus rounded-sm font-ui text-sm text-muted-foreground underline decoration-border underline-offset-4 transition-colors hover:text-foreground hover:decoration-foreground", className)} />;
 }
 
 // ─── async actions ───────────────────────────────────────────────────────────
@@ -121,7 +121,7 @@ export function useAction() {
 export function ErrorNote({ error, className }: { error: unknown; className?: string }) {
 	if (!error) return null;
 	return (
-		<p role="alert" className={cn("font-sans text-sm text-error", className)}>
+		<p role="alert" className={cn("font-ui text-sm text-error", className)}>
 			{error instanceof Error ? error.message : "Something went wrong. Try again."}
 		</p>
 	);
@@ -146,7 +146,15 @@ function renderMath(source: string): string {
 /** A short line of text that may carry inline LaTeX ($…$): concept and
  *  unit titles come straight from the learner's material. */
 export const Tex = memo(function Tex({ children }: { children: string }) {
-	if (!children.includes("$")) return <>{children}</>;
+	if (!children.includes("$")) {
+		// Material often writes a plain "R^n": set the exponent as one.
+		if (!/[A-Za-z]\^[A-Za-z0-9]/.test(children)) return <>{children}</>;
+		return (
+			<>
+				{children.split(/(\^[A-Za-z0-9]+)/).map((part, i) => (part.startsWith("^") && i > 0 ? <sup key={i}>{part.slice(1)}</sup> : <span key={i}>{part}</span>))}
+			</>
+		);
+	}
 	return (
 		<>
 			{children.split(/(\$[^$]+\$)/).map((part, i) => {
@@ -200,13 +208,13 @@ export function Meter({ knowledge, of, size = "large", className }: {
 					<span className={cn("font-title leading-none tabular-nums", size === "large" ? "text-[68px]" : "text-[36px]", !measured && "text-muted-foreground/50")}>
 						{measured ? percent : "–"}<span className={cn(size === "large" ? "text-[34px]" : "text-[20px]")}>%</span>
 					</span>
-					<span className="font-sans text-sm text-muted-foreground">{measured ? `of ${of} known` : "not measured yet"}</span>
+					<span className="font-ui text-sm text-muted-foreground">{measured ? `of ${of} known` : "not measured yet"}</span>
 				</p>
 				{size === "large" && <Trace knowledge={knowledge} className="mb-1 shrink-0" />}
 			</div>
 			<Stroke value={knowledge.value ?? 0} label={`${of}: ${measured ? `${percent}% known` : "not measured yet"}`} className="mt-3" />
 			{size === "large" && measured && (
-				<p className="mt-2 font-sans text-sm text-muted-foreground">
+				<p className="mt-2 font-ui text-sm text-muted-foreground">
 					From {knowledge.answers} {knowledge.answers === 1 ? "answer" : "answers"}. Every question you answer sharpens it.
 				</p>
 			)}
@@ -256,7 +264,7 @@ export function MoreMenu({ items, label = "More" }: { items: MenuItem[]; label?:
 									setOpen(false);
 									item.onSelect();
 								}}
-								className={cn("sy-focus w-full rounded-lg px-3 py-2 text-left font-sans text-sm transition-colors hover:bg-accent disabled:opacity-45", (item.danger && arming === item.label) && "text-error")}
+								className={cn("sy-focus w-full rounded-lg px-3 py-2 text-left font-ui text-sm transition-colors hover:bg-accent disabled:opacity-45", (item.danger && arming === item.label) && "text-error")}
 							>
 								{arming === item.label ? item.confirm : item.label}
 							</button>

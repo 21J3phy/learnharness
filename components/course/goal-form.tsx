@@ -14,7 +14,7 @@ const KIND_FROM_TITLE: [RegExp, GoalKind][] = [
 	[/test|exam/i, "test"],
 ];
 
-const FIELD = "sy-focus h-11 w-full rounded-lg border border-border bg-background px-3 font-sans text-base placeholder:text-muted-foreground/70";
+const FIELD = "sy-focus h-11 w-full rounded-lg border border-border bg-background px-3 font-ui text-base placeholder:text-muted-foreground/70";
 
 /**
  * "What are you studying for, and when?" — the name, the day, and the
@@ -59,14 +59,14 @@ export function GoalForm({ course, onCreated, onCancel }: { course: CourseView; 
 
 			{usable.length > 0 && (
 				<div className="mt-5">
-					<p className="font-sans text-sm text-muted-foreground">Found in your material:</p>
+					<p className="font-ui text-sm text-muted-foreground">Found in your material:</p>
 					<ul className="mt-2 flex flex-wrap gap-2">
 						{usable.map((s) => (
 							<li key={`${s.title}:${s.date ?? ""}`}>
 								<button
 									type="button"
 									onClick={() => use(s)}
-									className={cn("sy-focus rounded-full border border-border px-3.5 py-1.5 font-sans text-sm transition-colors hover:bg-accent", title === s.title && "border-foreground")}
+									className={cn("sy-focus rounded-full border border-border px-3.5 py-1.5 font-ui text-sm transition-colors hover:bg-accent", title === s.title && "border-foreground")}
 								>
 									{s.title}{s.date ? <span className="text-muted-foreground">, {dayMonth(s.date)}</span> : null}
 								</button>
@@ -78,18 +78,18 @@ export function GoalForm({ course, onCreated, onCancel }: { course: CourseView; 
 
 			<div className="mt-6 grid grid-cols-[1fr_11.5rem] gap-3">
 				<label className="block">
-					<span className="font-sans text-sm text-muted-foreground">What</span>
+					<span className="font-ui text-sm text-muted-foreground">What</span>
 					<input className={cn(FIELD, "mt-1.5")} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Midterm 1" maxLength={120} data-testid="goal-title" />
 				</label>
 				<label className="block">
-					<span className="font-sans text-sm text-muted-foreground">When</span>
+					<span className="font-ui text-sm text-muted-foreground">When</span>
 					<input className={cn(FIELD, "mt-1.5")} type="date" value={date} min={course.today} max={addDays(course.today, 730)} onChange={(e) => setDate(e.target.value)} data-testid="goal-date" />
 				</label>
 			</div>
 
 			<fieldset className="mt-6">
 				<legend className="flex w-full items-baseline justify-between">
-					<span className="font-sans text-sm text-muted-foreground">What it covers</span>
+					<span className="font-ui text-sm text-muted-foreground">What it covers</span>
 					<LinkButton onClick={() => setUnits(allSelected ? new Set() : new Set(course.units.map((u) => u.id)))}>
 						{allSelected ? "Clear" : "Everything"}
 					</LinkButton>
@@ -100,7 +100,7 @@ export function GoalForm({ course, onCreated, onCancel }: { course: CourseView; 
 						const on = units.has(unit.id);
 						return (
 							<li key={unit.id} className="border-b border-border">
-								<label className="flex cursor-pointer items-baseline gap-3 py-2.5 font-sans text-base">
+								<label className="flex cursor-pointer items-baseline gap-3 py-2.5 font-ui text-base">
 									<input type="checkbox" checked={on} onChange={() => toggle(unit.id)} className="sy-focus size-4 translate-y-0.5 accent-[color:var(--foreground)]" data-testid={`goal-unit-${unit.id}`} />
 									<span className="flex-1"><span className={cn(on && "sy-hl-half")}><Tex>{unit.title}</Tex></span></span>
 									<span className="text-sm text-muted-foreground">{count} {count === 1 ? "concept" : "concepts"}</span>
@@ -109,7 +109,7 @@ export function GoalForm({ course, onCreated, onCancel }: { course: CourseView; 
 						);
 					})}
 				</ul>
-				{note && <p className="mt-2 font-sans text-sm text-muted-foreground">Your material says: “{note}”</p>}
+				{note && <p className="mt-2 font-ui text-sm text-muted-foreground">Your material says: “{note}”</p>}
 			</fieldset>
 
 			<div className="mt-7 flex items-center gap-4">

@@ -53,9 +53,9 @@ describe("appearanceVars — the mapping the provider applies", () => {
 	it("factory appearance on Default: the Default palette plus the type tokens", () => {
 		const vars = appearanceVars(resolveAppearance(undefined), DEFAULT_THEME);
 		// This fork's default theme is Paper (light).
-		assert.equal(vars["--background"], "#fcfcfd");
-		assert.equal(vars["--accent"], "#e4e6e9", "the hover surface sits one step off the surface");
-		assert.equal(vars["--lh-ink-strong"], "#1a2130", "emphasis = text on Default");
+		assert.equal(vars["--background"], "#faf9f5");
+		assert.equal(vars["--accent"], "#e2e0d8", "the hover surface sits one step off the surface");
+		assert.equal(vars["--lh-ink-strong"], "#141413", "emphasis = text on Default");
 		assert.equal(vars["--lh-prose-size"], "16px");
 		assert.equal(vars["--lh-heading-weight"], "900");
 		assert.equal(vars["--font-prose"], undefined, "no font override at factory");

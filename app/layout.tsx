@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono, Source_Sans_3 } from "next/font/google";
+import { JetBrains_Mono, Lora, Poppins, Source_Sans_3 } from "next/font/google";
 import { connection } from "next/server";
 import "katex/dist/katex.min.css";
 import "./globals.css";
@@ -11,10 +11,18 @@ import UpdateBanner from "@/components/update-banner";
 import { PluginsProvider } from "@/components/plugins";
 import { readThemeBoot } from "@/src/server";
 
-// Chrome = JetBrains Mono, teaching prose = Source Sans 3, titles = CMU
-// Serif (the bundled lh-cmu @font-face in globals.css — no CDN).
+// Chrome = the sans, reading prose and titles = the serif (see the stacks
+// in globals.css); JetBrains Mono stays for code, Source Sans 3 stays
+// loaded as a reading-font choice.
 const ui = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains" });
 const prose = Source_Sans_3({ subsets: ["latin"], variable: "--font-sans3" });
+// Anthropic's typefaces are licensed (Styrene for interface text, Tiempos
+// for reading and headlines), so they are never bundled: globals.css names
+// them first and uses a copy installed on this machine. These two are the
+// open stand-ins Anthropic's own brand guidelines name — Poppins for the
+// sans, Lora for the serif — and fill in when the real faces are absent.
+const sans = Poppins({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-poppins" });
+const serif = Lora({ subsets: ["latin"], style: ["normal", "italic"], variable: "--font-lora" });
 
 export const metadata: Metadata = {
 	title: "Syllabus",
@@ -31,7 +39,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 	return (
 		<html
 			lang="en"
-			className={`${theme.mode} ${ui.variable} ${prose.variable}`}
+			className={`${theme.mode} ${ui.variable} ${prose.variable} ${sans.variable} ${serif.variable}`}
 			style={vars as React.CSSProperties}
 			suppressHydrationWarning
 		>

@@ -7,11 +7,11 @@ import { dayNumber, longDay, monthName, weekdayShort } from "./parts";
 
 const DAY = 46;
 
-/** A date circled in red pen — how an exam is marked on a wall calendar. */
+/** A date circled by hand — how an exam is marked on a wall calendar. */
 function PenCircle() {
 	return (
 		<svg viewBox="0 0 48 48" className="pointer-events-none absolute -inset-1.5 size-[calc(100%+0.75rem)]" aria-hidden="true">
-			<path d="M26 5.5 C37.5 5 44 13.5 43 24.5 C42 36 33 43.5 22 42.5 C11 41.5 4.5 33 5.5 22 C6.5 11.5 14.5 5.5 28.5 7" fill="none" stroke="var(--lh-error)" strokeWidth="2" strokeLinecap="round" />
+			<path d="M26 5.5 C37.5 5 44 13.5 43 24.5 C42 36 33 43.5 22 42.5 C11 41.5 4.5 33 5.5 22 C6.5 11.5 14.5 5.5 28.5 7" fill="none" stroke="var(--lh-accent)" strokeWidth="2" strokeLinecap="round" />
 		</svg>
 	);
 }
@@ -53,11 +53,11 @@ export function DayStrip({ goal, today, selected, onSelect }: {
 					const label = `${longDay(day)}${exam ? `, ${goal.title}` : session ? `, ${session.title}${done ? ", done" : missed ? ", missed" : ""}` : ""}`;
 					const body = (
 						<>
-							<span className="block h-4 font-sans text-[11px] leading-4 text-muted-foreground">
+							<span className="block h-4 font-ui text-[11px] leading-4 text-muted-foreground">
 								{i === 0 || dayNumber(day) === 1 ? monthName(day).slice(0, 3) : weekdayShort(day).slice(0, 1)}
 							</span>
 							<span className={cn(
-								"relative mx-auto mt-1 flex size-8 items-center justify-center rounded-full font-sans text-[15px] tabular-nums transition-colors",
+								"relative mx-auto mt-1 flex size-8 items-center justify-center rounded-full font-ui text-[15px] tabular-nums transition-colors",
 								isToday && "bg-foreground font-semibold text-background",
 								!isToday && day < today && "text-muted-foreground",
 								active && !isToday && "ring-1 ring-foreground",

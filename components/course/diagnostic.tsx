@@ -84,7 +84,7 @@ export function DiagnosticRun({ course, goal, adopt, onClose, onPlan }: {
 				<div className="flex-1">
 					{!finished && (
 						<>
-							<p className="flex items-baseline justify-between font-sans text-sm text-muted-foreground">
+							<p className="flex items-baseline justify-between font-ui text-sm text-muted-foreground">
 								<span>Question {Math.min(asked + (reveal ? 0 : 1), budget)} of at most {budget}</span>
 								<span className="tabular-nums" data-testid="diagnostic-meter">{knowledge.value === null ? "" : `${Math.round(knowledge.value * 100)}% known so far`}</span>
 							</p>
@@ -126,12 +126,12 @@ export function DiagnosticRun({ course, goal, adopt, onClose, onPlan }: {
 													reveal && !right && !chosen && "border-border opacity-55",
 												)}
 											>
-												<span className="w-4 shrink-0 font-sans text-sm text-muted-foreground">{LETTERS[i]}</span>
+												<span className="w-4 shrink-0 font-ui text-sm text-muted-foreground">{LETTERS[i]}</span>
 												<span className={cn("flex-1 text-[16.5px] leading-snug", reveal && right && "[&_p]:inline")}>
 													<MessageResponse>{option}</MessageResponse>
 												</span>
-												{reveal && right && <span className="shrink-0 font-sans text-sm"><span className="sy-hl">correct</span></span>}
-												{reveal && chosen && !right && <span className="shrink-0 font-sans text-sm text-error">your answer</span>}
+												{reveal && right && <span className="shrink-0 font-ui text-sm"><span className="sy-hl">correct</span></span>}
+												{reveal && chosen && !right && <span className="shrink-0 font-ui text-sm text-error">your answer</span>}
 											</button>
 										</li>
 									);
@@ -151,14 +151,14 @@ export function DiagnosticRun({ course, goal, adopt, onClose, onPlan }: {
 								) : (
 									<div className="flex items-center justify-between">
 										<LinkButton onClick={() => answer(null)} disabled={action.busy} data-testid="diagnostic-skip" className="text-base">I don't know</LinkButton>
-										<p className="font-sans text-sm text-muted-foreground">Press A–D, or 0 for “I don't know”.</p>
+										<p className="font-ui text-sm text-muted-foreground">Press A–D, or 0 for “I don't know”.</p>
 									</div>
 								)}
 								<ErrorNote error={action.error} className="mt-3" />
 							</div>
 						</>
 					) : (
-						<p className="font-sans text-base text-muted-foreground">No question is ready. Close this and try again.</p>
+						<p className="font-ui text-base text-muted-foreground">No question is ready. Close this and try again.</p>
 					)}
 				</div>
 			</div>
@@ -191,7 +191,7 @@ function Result({ course, goal, onPlan }: { course: CourseView; goal: Goal; onPl
 		<div data-testid="diagnostic-result">
 			<h2 className="font-title text-[28px] leading-tight">Here is where you stand.</h2>
 			<Meter knowledge={knowledgeOf(course, goalScope(course, goal).core)} of={goal.title} className="mt-6" />
-			<p className="mt-6 max-w-[34rem] font-sans text-base leading-relaxed text-muted-foreground">
+			<p className="mt-6 max-w-[34rem] font-ui text-base leading-relaxed text-muted-foreground">
 				{right} of {goal.diagnostic!.answers.length} right. {toLearn > 0
 					? `Your plan spends its time on the ${toLearn} ${toLearn === 1 ? "concept" : "concepts"} that ${toLearn === 1 ? "isn't" : "aren't"} solid yet.`
 					: "Your plan keeps it warm until the day."}
@@ -199,8 +199,8 @@ function Result({ course, goal, onPlan }: { course: CourseView; goal: Goal; onPl
 			<div className="mt-9 space-y-5">
 				{groups.map(({ unit, concepts }) => (
 					<section key={unit.id}>
-						<h3 className="font-sans text-sm text-muted-foreground"><Tex>{unit.title}</Tex></h3>
-						<p className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1.5 font-sans text-[15.5px] leading-snug">
+						<h3 className="font-ui text-sm text-muted-foreground"><Tex>{unit.title}</Tex></h3>
+						<p className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1.5 font-ui text-[15.5px] leading-snug">
 							{concepts.map(({ c, state }) => <Hl key={c.id} state={state} className={cn(state === "solid" && "sy-hl-arrive")}><Tex>{c.title}</Tex></Hl>)}
 						</p>
 					</section>

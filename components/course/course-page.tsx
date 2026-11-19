@@ -98,12 +98,12 @@ export function CoursePage({ id, initial }: { id: string; initial: CourseView })
 		<div {...zone} className="relative h-dvh overflow-hidden">
 			<PageFrame aside={<MoreMenu items={menu} label="Course options" />}>
 				<main className="mx-auto w-full max-w-[68rem] px-10 pt-24 [&>*]:max-w-[42rem]">
-					<p><Link href="/" className="sy-focus rounded-sm font-sans text-sm text-muted-foreground transition-colors hover:text-foreground">Courses</Link></p>
+					<p><Link href="/" className="sy-focus rounded-sm font-ui text-sm text-muted-foreground transition-colors hover:text-foreground">Courses</Link></p>
 					<h1 className="mt-2 font-title text-[38px] leading-[1.1]" data-testid="course-title"><Tex>{course.title}</Tex></h1>
 					{course.sources.some((s) => s.notice) && (
-						<p className="mt-2 font-sans text-sm text-muted-foreground">{course.sources.filter((s) => s.notice).map((s) => `${s.name}: ${s.notice}`).join(" ")}</p>
+						<p className="mt-2 font-ui text-sm text-muted-foreground">{course.sources.filter((s) => s.notice).map((s) => `${s.name}: ${s.notice}`).join(" ")}</p>
 					)}
-					{refusal && <p role="alert" className="mt-3 font-sans text-sm text-error">{refusal}</p>}
+					{refusal && <p role="alert" className="mt-3 font-ui text-sm text-error">{refusal}</p>}
 					{picker}
 
 					{building ? (
@@ -111,7 +111,7 @@ export function CoursePage({ id, initial }: { id: string; initial: CourseView })
 					) : !ready ? (
 						<div className="mt-14">
 							<h2 className="font-title text-[28px] leading-tight">{course.build.status === "failed" ? "The map couldn't be built." : "Add your material."}</h2>
-							<p className="mt-3 font-sans text-lg leading-relaxed text-muted-foreground">
+							<p className="mt-3 font-ui text-lg leading-relaxed text-muted-foreground">
 								{course.build.error ?? "Drop a textbook, a syllabus or your lecture notes anywhere on this page."}
 							</p>
 							<div className="mt-6 flex items-center gap-4">
@@ -139,7 +139,7 @@ export function CoursePage({ id, initial }: { id: string; initial: CourseView })
 											type="button"
 											onClick={() => { setGoalId(g.id); setSession(null); setReplanning(false); }}
 											aria-current={goal.id === g.id}
-											className={cn("sy-focus rounded-sm font-sans text-[15px] transition-colors", goal.id === g.id ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
+											className={cn("sy-focus rounded-sm font-ui text-[15px] transition-colors", goal.id === g.id ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
 										>
 											<span className={cn(goal.id === g.id && "sy-hl-half")}>{g.title}</span>
 										</button>
@@ -147,7 +147,7 @@ export function CoursePage({ id, initial }: { id: string; initial: CourseView })
 								</nav>
 							)}
 
-							<p className={cn("font-sans text-[17px]", course.goals.length > 1 ? "mt-8" : "mt-12")} data-testid="goal-line">
+							<p className={cn("font-ui text-[17px]", course.goals.length > 1 ? "mt-8" : "mt-12")} data-testid="goal-line">
 								<span className="font-semibold">{goal.title}</span>{" "}
 								{daysBetween(course.today, goal.date) >= 0 ? `is ${awayDays(daysBetween(course.today, goal.date))}` : `was ${awayDays(daysBetween(course.today, goal.date))}`}
 								<span className="text-muted-foreground">, {longDay(goal.date)}</span>
@@ -188,7 +188,7 @@ export function CoursePage({ id, initial }: { id: string; initial: CourseView })
 				{ready && !building && (
 					<section className="mx-auto mt-24 w-full max-w-[68rem] px-10 pb-32" aria-label="Course map">
 						<div className="mb-6 flex items-baseline justify-between gap-6">
-							<p className="font-sans text-[15px]">
+							<p className="font-ui text-[15px]">
 								<span className="font-semibold">{!whole && goal ? `What ${goal.title} covers` : "The whole course"}</span>
 								{goal && <LinkButton onClick={() => setWhole((w) => !w)} className="ml-3">{whole ? `Only ${goal.title}` : "Whole course"}</LinkButton>}
 							</p>
@@ -229,7 +229,7 @@ export function CoursePage({ id, initial }: { id: string; initial: CourseView })
 }
 
 const LEAD = "font-title text-[28px] leading-tight";
-const SUB = "mt-2 max-w-[34rem] font-sans text-base leading-relaxed text-muted-foreground";
+const SUB = "mt-2 max-w-[34rem] font-ui text-base leading-relaxed text-muted-foreground";
 
 /** The one thing to do next for a goal: take the diagnostic, build the
  *  plan, or study the session that is due. */
@@ -315,17 +315,17 @@ function NextStep({
 	const when = shown.date === course.today ? "Today" : `${weekdayShort(shown.date)} ${dayMonth(shown.date)}`;
 	return (
 		<div data-testid="session-card">
-			<p className="font-sans text-sm text-muted-foreground">{when}{done ? ", done" : ""}</p>
+			<p className="font-ui text-sm text-muted-foreground">{when}{done ? ", done" : ""}</p>
 			<h2 className={cn(LEAD, "mt-1")}>{done ? <span className="sy-hl"><Tex>{shown.title}</Tex></span> : <Tex>{shown.title}</Tex>}</h2>
 			<div className="mt-5 flex flex-wrap items-center gap-5">
 				<PrimaryButton onClick={() => onOpenSession(shown)} disabled={busy} data-testid="session-start">
 					{done ? "Open" : shown.chatId ? "Continue" : "Start"}
 				</PrimaryButton>
-				{!done && <span className="font-sans text-sm text-muted-foreground">{shown.minutes} min</span>}
+				{!done && <span className="font-ui text-sm text-muted-foreground">{shown.minutes} min</span>}
 				{!done && shown.chatId && <LinkButton onClick={() => onCompleteSession(shown)} disabled={busy}>Mark done</LinkButton>}
 			</div>
 			{goal.plan?.neededMinutesPerDay && (
-				<p className="mt-4 max-w-[34rem] font-sans text-sm text-muted-foreground">
+				<p className="mt-4 max-w-[34rem] font-ui text-sm text-muted-foreground">
 					Covering everything by {dayMonth(goal.date)} takes about {goal.plan.neededMinutesPerDay} minutes each study day.
 				</p>
 			)}
@@ -354,14 +354,14 @@ function PlanSetup({ initial, busy, again, onBuild, onCancel }: {
 		if (next.has(day)) { if (next.size > 1) next.delete(day); } else next.add(day);
 		return next;
 	});
-	const ROUND = "sy-focus inline-flex size-9 items-center justify-center rounded-full border border-border font-sans text-[15px] transition-colors hover:bg-accent";
+	const ROUND = "sy-focus inline-flex size-9 items-center justify-center rounded-full border border-border font-ui text-[15px] transition-colors hover:bg-accent";
 	return (
 		<div data-testid="plan-setup">
 			<h2 className={LEAD}>How much time can you give it?</h2>
 			<div className="mt-6 flex flex-wrap items-center gap-x-10 gap-y-5">
 				<div className="flex items-center gap-3">
 					<button type="button" className={ROUND} onClick={() => step(-15)} aria-label="Fifteen minutes less">−</button>
-					<p className="w-28 text-center font-sans text-sm text-muted-foreground"><span className="font-title text-3xl text-foreground tabular-nums">{minutes}</span> min a day</p>
+					<p className="w-28 text-center font-ui text-sm text-muted-foreground"><span className="font-title text-3xl text-foreground tabular-nums">{minutes}</span> min a day</p>
 					<button type="button" className={ROUND} onClick={() => step(15)} aria-label="Fifteen minutes more">+</button>
 				</div>
 				<div className="flex items-center gap-1.5" role="group" aria-label="Study days">
@@ -405,7 +405,7 @@ function BuildProgress({ course }: { course: CourseView }) {
 						: "A whole textbook takes a few minutes. You can leave this page."}
 			</p>
 			<Stroke value={status === "organizing" ? 0.96 : total > 0 ? (done / total) * 0.92 : 0.02} label="Building the map" className="mt-6" />
-			<ul className="mt-8 flex flex-wrap gap-x-5 gap-y-1.5 font-sans text-[15px] text-muted-foreground">
+			<ul className="mt-8 flex flex-wrap gap-x-5 gap-y-1.5 font-ui text-[15px] text-muted-foreground">
 				{recent.map((title, i) => <li key={`${found.length - recent.length + i}:${title}`} className="sy-found"><Tex>{title}</Tex></li>)}
 			</ul>
 		</div>

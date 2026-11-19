@@ -44,7 +44,7 @@ export function ConceptDetail({
 		if (!c) return null;
 		return (
 			<li key={id}>
-				<button type="button" onClick={() => onSelect(id)} className="sy-focus rounded-sm text-left font-sans text-[15px] leading-snug hover:underline hover:underline-offset-4">
+				<button type="button" onClick={() => onSelect(id)} className="sy-focus rounded-sm text-left font-ui text-[15px] leading-snug hover:underline hover:underline-offset-4">
 					<Hl state={mastery.get(id)?.state ?? "untested"}><Tex>{c.title}</Tex></Hl>
 				</button>
 			</li>
@@ -56,7 +56,7 @@ export function ConceptDetail({
 		<aside className="lh-no-drag absolute inset-y-0 right-0 z-30 flex w-[min(24rem,100%)] flex-col border-l border-border bg-background shadow-[-12px_0_32px_-24px_rgba(0,0,0,0.5)]" aria-label={concept.title} data-testid="concept-detail">
 			<div className="flex items-start justify-between gap-3 px-6 pb-2 pt-14">
 				<div>
-					{unit && <p className="font-sans text-sm text-muted-foreground"><Tex>{unit.title}</Tex></p>}
+					{unit && <p className="font-ui text-sm text-muted-foreground"><Tex>{unit.title}</Tex></p>}
 					<h2 className="mt-1 font-title text-2xl leading-tight"><Tex>{concept.title}</Tex></h2>
 				</div>
 				<button type="button" onClick={onClose} aria-label="Close" className="sy-focus -mr-2 rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground">
@@ -68,37 +68,37 @@ export function ConceptDetail({
 				<div className="text-[15px]"><MessageResponse>{concept.summary}</MessageResponse></div>
 
 				<section>
-					<p className="font-sans text-[15px]">
+					<p className="font-ui text-[15px]">
 						<Hl state={m?.state ?? "untested"} className={cn(m?.state === "untested" && "text-foreground")}>{STATE_LINE[m?.state ?? "untested"]}</Hl>
 						{m && m.state !== "untested" && <span className="text-muted-foreground"> Estimated {Math.round(m.p * 100)}%.</span>}
 					</p>
 					{evidence.length > 0 ? (
-						<ul className="mt-2 space-y-1 font-sans text-sm text-muted-foreground">
+						<ul className="mt-2 space-y-1 font-ui text-sm text-muted-foreground">
 							{evidence.slice(0, 6).map((e) => (
 								<li key={e.id}>{e.correct ? "Right" : "Missed"}, {SOURCE_LABEL[e.source].toLowerCase()}, {dayMonth(e.at.slice(0, 10))}</li>
 							))}
 						</ul>
 					) : m && m.inferred > 0 ? (
-						<p className="mt-2 font-sans text-sm text-muted-foreground">Worked out from your answers on the concepts around it.</p>
+						<p className="mt-2 font-ui text-sm text-muted-foreground">Worked out from your answers on the concepts around it.</p>
 					) : null}
 				</section>
 
 				{concept.prereqs.length > 0 && (
 					<section>
-						<h3 className="font-sans text-sm text-muted-foreground">Rests on</h3>
+						<h3 className="font-ui text-sm text-muted-foreground">Rests on</h3>
 						<ul className="mt-1.5 space-y-1.5">{concept.prereqs.map(link)}</ul>
 					</section>
 				)}
 				{dependents.length > 0 && (
 					<section>
-						<h3 className="font-sans text-sm text-muted-foreground">Leads to</h3>
+						<h3 className="font-ui text-sm text-muted-foreground">Leads to</h3>
 						<ul className="mt-1.5 space-y-1.5">{dependents.map(link)}</ul>
 					</section>
 				)}
 				{concept.refs.length > 0 && (
 					<section>
-						<h3 className="font-sans text-sm text-muted-foreground">In your material</h3>
-						<ul className="mt-1.5 space-y-1 font-sans text-[15px]">
+						<h3 className="font-ui text-sm text-muted-foreground">In your material</h3>
+						<ul className="mt-1.5 space-y-1 font-ui text-[15px]">
 							{concept.refs.map((r) => (
 								<li key={`${r.sourceId}:${r.from}`}>
 									{r.from === r.to ? `Page ${r.from}` : `Pages ${r.from}–${r.to}`}

@@ -71,7 +71,7 @@ export function ConceptMap({
 		return `M ${x1} ${from.y} C ${x1 + bend} ${from.y}, ${x2 - bend} ${to.y}, ${x2} ${to.y}`;
 	};
 
-	if (lanes.length === 0) return <p className="font-sans text-sm text-muted-foreground">Nothing to show here yet.</p>;
+	if (lanes.length === 0) return <p className="font-ui text-sm text-muted-foreground">Nothing to show here yet.</p>;
 
 	return (
 		<div className="-mx-10 overflow-x-auto px-10 pb-4" data-testid="concept-map">
@@ -87,8 +87,8 @@ export function ConceptMap({
 					return (
 						<section key={lane.unit.id} className="absolute top-0" style={{ left: i * (LANE + GAP), width: LANE }} aria-label={lane.unit.title}>
 							<header className="flex flex-col justify-end pr-4" style={{ height: HEAD - 16 }}>
-								<h3 className="line-clamp-2 font-sans text-[13.5px] font-semibold leading-snug" title={lane.unit.title}><Tex>{lane.unit.title}</Tex></h3>
-								<p className="font-sans text-xs text-muted-foreground">{solid} of {total}</p>
+								<h3 className="line-clamp-2 font-ui text-[13.5px] font-semibold leading-snug" title={lane.unit.title}><Tex>{lane.unit.title}</Tex></h3>
+								<p className="font-ui text-xs text-muted-foreground">{solid} of {total}</p>
 							</header>
 							<ul className="mt-3.5">
 								{lane.ids.map((id) => {
@@ -106,7 +106,7 @@ export function ConceptMap({
 												onClick={() => onSelect(selected === id ? null : id)}
 												title={concept.title.replaceAll("$", "")}
 												className={cn(
-													"sy-focus flex max-w-full items-center gap-1.5 rounded-sm py-0.5 pr-1 text-left font-sans text-[14.5px] leading-tight transition-opacity duration-150",
+													"sy-focus flex max-w-full items-center gap-1.5 rounded-sm py-0.5 pr-1 text-left font-ui text-[14.5px] leading-tight transition-opacity duration-150",
 													near && !near.has(id) && "opacity-30",
 													assumed.has(id) && "italic",
 													selected === id && "font-semibold",
@@ -130,7 +130,7 @@ export function ConceptMap({
 /** What the marks on the map mean. */
 export function MapLegend({ className }: { className?: string }) {
 	return (
-		<p className={cn("flex items-center gap-x-4 font-sans text-xs text-muted-foreground", className)}>
+		<p className={cn("flex items-center gap-x-4 font-ui text-xs text-muted-foreground", className)}>
 			<span className="sy-hl">solid</span>
 			<span className="sy-hl-half text-foreground">shaky</span>
 			<span className="text-foreground">not yet</span>
