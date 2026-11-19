@@ -113,7 +113,9 @@ it("a server palette refresh cannot overwrite newer live colors or mode; typogra
 		// Simulate <html> rewritten by a refreshed layout before provider effects.
 		document.documentElement.className = "dark";
 		document.documentElement.style.setProperty("--foreground", "#111111");
-		await act(async () => render({ colors: { text: "#111111" } }, { ...DEFAULT_THEME, mode: "light" }));
+		// A refreshed layout hands down a theme object that differs from the
+		// first one (this fork's default is light, so the stale one is dark).
+		await act(async () => render({ colors: { text: "#111111" } }, { ...DEFAULT_THEME, mode: "dark" }));
 		assert.equal(document.documentElement.classList.contains("light"), true);
 		assert.equal(document.documentElement.style.getPropertyValue("--foreground"), "#123456");
 		assert.match(document.documentElement.style.getPropertyValue("--font-prose"), /Georgia/);

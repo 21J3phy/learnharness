@@ -8,6 +8,8 @@ export * from "./chat-handler.ts";
 export * from "./events-stream.ts";
 export * from "./chats.ts";
 export * from "./graph.ts";
+// Courses (this fork): material → map → goals → diagnostic → plan → sessions.
+export * from "./courses.ts";
 export * from "./source-organization.ts";
 export * from "./source-deletion.ts";
 export { NotesImportError } from "../agent/subagents/extraction.ts";

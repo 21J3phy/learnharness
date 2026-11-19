@@ -142,17 +142,26 @@ function builtin(name: string, mode: ThemeMode, c: ThemeColors): Theme {
  *  page with soft green, purple and orange inks. NvChad Onedark: base46's
  *  onedark. */
 export const BUILTIN_THEMES: readonly Theme[] = [
+	// This fork's default: squared exam paper, blue-black ink, a
+	// ballpoint-blue accent and a red marking pen — the stationery the
+	// course screens' highlighter belongs to.
 	{
 		id: DEFAULT_THEME_ID,
-		name: "Default",
-		mode: "dark",
+		name: "Paper",
+		mode: "light",
 		builtin: true,
 		colors: {
-			background: "#141414", surface: "#1c1c1c", border: "#434343", text: "#e6e6e6", textMuted: "#8d8d8d",
-			accent: "#8d8d8d", bold: "#e6e6e6", italic: "#e6e6e6", code: "#e6e6e6",
-			error: "#ef4444", success: "#22c55e", warning: "#f59e0b",
+			background: "#fcfcfd", surface: "#f2f4f7", border: "#d3d9e3", text: "#1a2130", textMuted: "#667085",
+			accent: "#2f4bc7", bold: "#1a2130", italic: "#1a2130", code: "#2f4bc7",
+			error: "#c8372d", success: "#2f7d4f", warning: "#b7791f",
 		},
 	},
+	// LearnHarness's original dark palette (upstream's Default).
+	builtin("Graphite", "dark", {
+		background: "#141414", surface: "#1c1c1c", border: "#434343", text: "#e6e6e6", textMuted: "#8d8d8d",
+		accent: "#8d8d8d", bold: "#e6e6e6", italic: "#e6e6e6", code: "#e6e6e6",
+		error: "#ef4444", success: "#22c55e", warning: "#f59e0b",
+	}),
 	builtin("Catppuccin Latte", "light", {
 		background: "#eff1f5", surface: "#e6e9ef", border: "#ccd0da", text: "#4c4f69", textMuted: "#6c6f85",
 		accent: "#8839ef", bold: "#7287fd", italic: "#ea76cb", code: "#fe640b",
@@ -205,7 +214,7 @@ export const BUILTIN_THEMES: readonly Theme[] = [
 	}),
 ];
 
-/** The app's original dark palette, and the fallback for a missing id. */
+/** The default theme (Paper), and the fallback for a missing id. */
 export const DEFAULT_THEME: Theme = BUILTIN_THEMES[0]!;
 
 /** Preset ids are reserved: imports never take them, DELETE refuses them. */

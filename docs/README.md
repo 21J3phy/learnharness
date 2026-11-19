@@ -2,6 +2,7 @@
 
 ## User guides
 
+- [Courses](courses.md) — this fork's layer: material in, a concept map, goals, the diagnostic, the plan and the knowledge meter.
 - [Getting started](getting-started.md) — connections, models, sessions, dictation, files, and notes imports.
 - [Keyboard shortcuts](keyboard.md) — defaults, rebinding, and navigation.
 - [Claude Code](claude-code.md) — use an installed CLI and troubleshoot its connection.

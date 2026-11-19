@@ -68,6 +68,9 @@ export interface ServerEvents {
         topic: string;
         data?: unknown;
     };
+    "courses-changed": {
+        courseId?: string;
+    };
 }
 ```
 
@@ -95,6 +98,8 @@ export interface ServerEvents {
 - ["plugin-message".pluginId](#serverevents-plugin-messagepluginid)
 - ["plugin-message".topic](#serverevents-plugin-messagetopic)
 - ["plugin-message".data](#serverevents-plugin-messagedata)
+- ["courses-changed"](#serverevents-courses-changed)
+- ["courses-changed".courseId](#serverevents-courses-changedcourseid)
 
 ### ServerEvents "turn-started"
 
@@ -275,6 +280,23 @@ topic: string;
 
 ```ts
 data?: unknown;
+```
+
+### ServerEvents "courses-changed"
+
+A course record changed (map build progress, goals, diagnostic, plan).
+Notify-then-fetch, like every other record event.
+
+```ts
+"courses-changed": {
+    courseId?: string;
+};
+```
+
+### ServerEvents "courses-changed".courseId
+
+```ts
+courseId?: string;
 ```
 
 ## ServerEventType

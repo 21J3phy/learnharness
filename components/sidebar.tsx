@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode, ThemeMode } from "@/src/core";
-import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { DumbbellIcon, LibraryIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -139,8 +139,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 		void window.lh?.getZoom?.().then(setZoomVar);
 
 		const stored = localStorage.getItem(STORAGE_KEY);
-		// Default: open (first run introduces the sidebar).
-		setOpen(stored === null ? true : stored === "1");
+		// Default: closed. This fork opens on the courses home, where the
+		// page itself is the way in; the sidebar is one click away.
+		setOpen(stored === "1");
 		setMounted(true);
 		return () => off?.();
 	}, []);
@@ -673,13 +674,12 @@ function SessionsSidebar() {
 						// of the logo, carrying its real shortcut: ⌘G jumps to
 						// the graph view (keyboard-shortcuts routes it to "/",
 						// the same destination as this logo).
-						label="Home"
-						action="jump-graph"
+						label="Courses"
 						side="right"
 					>
 						<Link
 							href="/"
-							aria-label="Home"
+							aria-label="Courses"
 							className="lh-no-drag flex size-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50"
 						>
 							<LhMark className="size-6" />
@@ -700,6 +700,30 @@ function SessionsSidebar() {
 
 				{/* Core doors always lead explicit plugin sidebar placements. */}
 				<PluginSidebarActions>
+					{/* This fork's front doors: the courses home, and the free-form
+					    knowledge graph that used to be the home view. */}
+					<Link
+						href="/"
+						data-testid="nav-courses"
+						className={cn(
+							"flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-accent hover:text-foreground",
+							pathname === "/" || pathname.startsWith("/course/") ? "text-foreground" : "text-muted-foreground",
+						)}
+					>
+						<LibraryIcon className="size-3 shrink-0" />
+						<span className="min-w-0 truncate">Courses</span>
+					</Link>
+					<Link
+						href="/graph"
+						data-testid="nav-graph"
+						className={cn(
+							"flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-accent hover:text-foreground",
+							pathname === "/graph" ? "text-foreground" : "text-muted-foreground",
+						)}
+					>
+						<WaypointsIcon className="size-3 shrink-0" />
+						<span className="min-w-0 truncate">Knowledge graph</span>
+					</Link>
 					<button
 						type="button"
 						data-testid="new-session"

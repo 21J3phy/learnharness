@@ -39,7 +39,7 @@ import {
 	type SessionPricing,
 } from "../src/core";
 
-import { copyImmutableData, pendingPluginQuestionOf, pluginQuestionCallsOf } from "../src/core/index.ts";
+import { copyImmutableData, conversationBegun, pendingPluginQuestionOf, pluginQuestionCallsOf } from "../src/core/index.ts";
 import { pluginQuestionOccurrenceKey, samePluginQuestionOccurrence, type PluginQuestionAnswerState, type PluginQuestionSnapshot, type PluginQuestionOccurrence } from "../src/core/index.ts";
 
 import type { PluginProblemSnapshot, PluginProblemSubmissionState } from "../src/core/index.ts";
@@ -382,7 +382,7 @@ export class SessionModel {
 			messages: projectView(messages, live),
 			nativeMessages: messages,
 			canonicalMessages: this.base,
-			hasConfirmedConversation: this.base.some(m => m.role === "user" || m.role === "assistant"),
+			hasConfirmedConversation: conversationBegun(this.base),
 			contextTokens: measuredContextTokens(messages, this.incompleteUsageIds),
 			status: this.statusValue,
 			evaluating: this.statusValue === "submitted" && this.evaluationOwner !== null && this.evaluationOwner === this.consumeAbort,

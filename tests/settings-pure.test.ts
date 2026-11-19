@@ -52,9 +52,10 @@ describe("resolveAppearance — delta over factory", () => {
 describe("appearanceVars — the mapping the provider applies", () => {
 	it("factory appearance on Default: the Default palette plus the type tokens", () => {
 		const vars = appearanceVars(resolveAppearance(undefined), DEFAULT_THEME);
-		assert.equal(vars["--background"], "#141414");
-		assert.equal(vars["--accent"], "#2a2a2a", "the hover surface keeps its hand-picked value");
-		assert.equal(vars["--lh-ink-strong"], "#e6e6e6", "emphasis = text on Default");
+		// This fork's default theme is Paper (light).
+		assert.equal(vars["--background"], "#fcfcfd");
+		assert.equal(vars["--accent"], "#e4e6e9", "the hover surface sits one step off the surface");
+		assert.equal(vars["--lh-ink-strong"], "#1a2130", "emphasis = text on Default");
 		assert.equal(vars["--lh-prose-size"], "16px");
 		assert.equal(vars["--lh-heading-weight"], "900");
 		assert.equal(vars["--font-prose"], undefined, "no font override at factory");
@@ -116,7 +117,7 @@ describe("staleVarNames — the removal half of application (owner repro: resets
 		assert.ok(stale.includes("--font-prose"));
 		assert.ok(stale.includes("--font-title"), "serif toggle back ON must clear the title override");
 		assert.ok(!stale.includes("--background"), "a theme always sets every color");
-		assert.equal(factory["--background"], "#141414", "an emptied background is the theme's again");
+		assert.equal(factory["--background"], DEFAULT_THEME.colors.background, "an emptied background is the theme's again");
 		assert.ok(!stale.includes("--lh-prose-size"), "always-applied tokens never go stale");
 	});
 

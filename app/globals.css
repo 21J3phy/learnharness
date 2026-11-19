@@ -27,9 +27,10 @@
 	outline: none;
 }
 
-/* Palette (owner's hexes): main #141414, raised #1C1C1C, edges #434343.
+/* Palette: this fork's default theme is Paper (light) — see
+   BUILTIN_THEMES[0] in src/core/themes.ts. The literals below are its
+   colors, the fallback before the active theme's inline variables land.
    Mono chrome = JetBrains Mono; prose = Source Sans 3; titles = CMU Serif.
-   Dark is the default variant (:root) and the `.dark` class on <html>.
    THEMES (theme wave, 2026-11-04): the active theme's colors land as
    inline variables on <html> (app/layout.tsx first paint, then the
    appearance provider), so these literals are the Default theme's —
@@ -37,40 +38,40 @@
    pins the two equal. */
 :root,
 .dark {
-	color-scheme: dark;
+	color-scheme: light;
 	--radius: 8px;
-	--background: #141414;
-	--foreground: #e6e6e6;
-	--card: #1c1c1c;
-	--card-foreground: #e6e6e6;
-	--popover: #1c1c1c;
-	--popover-foreground: #e6e6e6;
-	--primary: #e6e6e6;
-	--primary-foreground: #141414;
-	--secondary: #1c1c1c;
-	--secondary-foreground: #e6e6e6;
-	--muted: #1c1c1c;
-	--muted-foreground: #8d8d8d;
-	--accent: #2a2a2a;
-	--accent-foreground: #e6e6e6;
-	--destructive: #ef4444;
-	--border: #434343;
-	--input: #434343;
-	--ring: #8d8d8d;
+	--background: #fcfcfd;
+	--foreground: #1a2130;
+	--card: #f2f4f7;
+	--card-foreground: #1a2130;
+	--popover: #f2f4f7;
+	--popover-foreground: #1a2130;
+	--primary: #1a2130;
+	--primary-foreground: #fcfcfd;
+	--secondary: #f2f4f7;
+	--secondary-foreground: #1a2130;
+	--muted: #f2f4f7;
+	--muted-foreground: #667085;
+	--accent: #e4e6e9;
+	--accent-foreground: #1a2130;
+	--destructive: #c8372d;
+	--border: #d3d9e3;
+	--input: #d3d9e3;
+	--ring: #2f4bc7;
 	/* The theme accent (rings, toggles, the selected theme card). The
 	   shadcn --accent above is the HOVER surface, not this. */
-	--lh-accent: #8d8d8d;
+	--lh-accent: #2f4bc7;
 	/* The strong line ink: plan-map outlines, callout borders, the LH mark. */
-	--lh-line-strong: #e6e6e6;
+	--lh-line-strong: #1a2130;
 	/* Emphasis inks default to the REGULAR TEXT COLOR (owner ruling,
 	   appearance wave 2026-09-26); themes give them their own colors. */
-	--lh-ink-strong: #e6e6e6;
-	--lh-ink-italic: #e6e6e6;
-	--lh-ink-code: #e6e6e6;
+	--lh-ink-strong: #1a2130;
+	--lh-ink-italic: #1a2130;
+	--lh-ink-code: #2f4bc7;
 	/* Status inks (text-error, bg-success/15, border-warning/40, …). */
-	--lh-error: #ef4444;
-	--lh-success: #22c55e;
-	--lh-warning: #f59e0b;
+	--lh-error: #c8372d;
+	--lh-success: #2f7d4f;
+	--lh-warning: #b7791f;
 	/* THE READING SIZE = the ladder's 16px rung (--text-lg). Can't be
 	   var()-linked: @theme inline inlines literals into utilities without
 	   emitting runtime vars — so this is the one documented duplication:
@@ -86,6 +87,9 @@
    on <html>); the class only flips the UA color scheme and the `.light`
    rules below. Must follow the block above: :root still matches
    <html class="light">, and with equal specificity the later rule wins. */
+.dark {
+	color-scheme: dark;
+}
 .light {
 	color-scheme: light;
 }
@@ -633,4 +637,109 @@ body {
 	background-color: var(--accent);
 	outline: 1px solid var(--border);
 	border-radius: 0.25rem;
+}
+
+/* ─── Courses (this fork) ──────────────────────────────────────────────────
+   One idea carries the course screens: a concept you hold is HIGHLIGHTED,
+   the way a student runs a highlighter down a syllabus. Solid = a full
+   stroke, shaky = the stroke only under the words, unknown = bare ink.
+   Everything else stays on the theme's own tokens, so every theme works. */
+:root,
+.dark {
+	/* On a dark page the pen is a translucent glow. */
+	--sy-hl: #ffe45c;
+	--sy-hl-band: color-mix(in srgb, #ffe45c 30%, transparent);
+	--sy-hl-ink: var(--foreground);
+	--sy-grid: color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+.light {
+	/* On paper it is the pen itself. */
+	--sy-hl: #f2c800;
+	--sy-hl-band: #ffe763;
+	--sy-hl-ink: #1c1a10;
+	/* Squared paper is ruled in pale blue. */
+	--sy-grid: color-mix(in srgb, #4f74d6 13%, transparent);
+}
+
+/* A highlighter stroke behind inline text. The uneven corner radii and the
+   slight overshoot left and right are what make it read as a pen, not a
+   background colour. Wraps cleanly across lines. */
+.sy-hl {
+	color: var(--sy-hl-ink);
+	background: linear-gradient(to bottom, transparent 10%, var(--sy-hl-band) 10%, var(--sy-hl-band) 90%, transparent 90%);
+	border-radius: 0.5em 0.2em 0.6em 0.25em / 0.3em 0.5em 0.25em 0.45em;
+	padding: 0 0.3em;
+	margin: 0 -0.3em;
+	box-decoration-break: clone;
+	-webkit-box-decoration-break: clone;
+}
+/* Half a stroke: only under the words. */
+.sy-hl-half {
+	background: linear-gradient(to bottom, transparent 62%, var(--sy-hl-band) 62%, var(--sy-hl-band) 92%, transparent 92%);
+	border-radius: 0.2em 0.5em 0.3em 0.6em / 0.4em 0.2em 0.5em 0.25em;
+	padding: 0 0.3em;
+	margin: 0 -0.3em;
+	box-decoration-break: clone;
+	-webkit-box-decoration-break: clone;
+}
+
+/* The progress stroke: one long pass of the pen across a ruled line. */
+.sy-stroke {
+	position: relative;
+	height: 14px;
+	border-bottom: 1px solid var(--border);
+}
+.sy-stroke > span {
+	position: absolute;
+	left: -3px;
+	bottom: 1px;
+	height: 12px;
+	min-width: 6px;
+	background: var(--sy-hl-band);
+	border-radius: 5px 2px 6px 3px / 4px 6px 3px 5px;
+	transition: width 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* Squared paper behind the map — the subject's own stationery. */
+.sy-grid {
+	background-image:
+		linear-gradient(to right, var(--sy-grid) 1px, transparent 1px),
+		linear-gradient(to bottom, var(--sy-grid) 1px, transparent 1px);
+	background-size: 24px 24px;
+	background-position: -1px -1px;
+}
+
+/* The pen arriving on a concept that just became solid. */
+@keyframes sy-swipe {
+	from { background-size: 0% 100%; }
+	to { background-size: 100% 100%; }
+}
+.sy-hl-arrive {
+	background-repeat: no-repeat;
+	animation: sy-swipe 500ms cubic-bezier(0.3, 0.7, 0.2, 1) both;
+}
+
+/* Titles found while the map is being built drift in one at a time. */
+@keyframes sy-found {
+	from { opacity: 0; transform: translateY(6px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+.sy-found {
+	animation: sy-found 280ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.sy-hl-arrive,
+	.sy-found {
+		animation: none;
+	}
+	.sy-stroke > span {
+		transition: none;
+	}
+}
+
+/* Keyboard focus on course controls: the app removes outlines globally and
+   lets each surface draw its own. */
+.sy-focus:focus-visible {
+	box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--sy-hl);
 }

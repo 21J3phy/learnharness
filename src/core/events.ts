@@ -40,6 +40,9 @@ export interface ServerEvents {
 	"plugins-changed": Record<string, never>;
 	/** Live-only, plugin-scoped notifications. Reconnect requires snapshot resync. */
 	"plugin-message": { pluginId: string; topic: string; data?: unknown };
+	/** A course record changed (map build progress, goals, diagnostic, plan).
+	 *  Notify-then-fetch, like every other record event. */
+	"courses-changed": { courseId?: string };
 }
 
 export type ServerEventType = keyof ServerEvents;
@@ -60,6 +63,7 @@ export const SERVER_EVENT_TYPES = [
 	"side-chats-changed",
 	"plugins-changed",
 	"plugin-message",
+	"courses-changed",
 ] as const satisfies readonly ServerEventType[];
 
 /** One notification: distribute over the vocabulary so narrowing `type`

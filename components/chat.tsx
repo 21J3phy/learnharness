@@ -11,7 +11,7 @@ import { usePageSurfaceBoundary, SurfaceRegion } from "./plugin-surfaces";
 import { findSurfaceBoundary } from "./plugin-surface-targets";
 import { scheduleOpeningSubmission } from "./plugin-submission-opening";
 import { activeProblemOccurrenceOf, buildAnswer, toClientQuestion, type PluginSubmission, type PluginSubmissionTarget, type QuestionData } from "@/src/core";
-import { validatePluginBuiltinSubmissionAnswer } from "@/src/core";
+import { validatePluginBuiltinSubmissionAnswer, conversationBegun } from "@/src/core";
 import { visibleQueuedSteers } from "@/components/session-core";
 import { SetupDialog } from "@/components/setup-dialog";
 import { Hint } from "@/components/ui/hint";
@@ -39,6 +39,7 @@ import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
 import { clearOpeningPrompt, readOpeningPromptEntry, stashOpeningPrompt, OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
+import { CourseSessionChip } from "@/components/course/session-chip";
 import { forwardDockWheel, useDockHeight } from "@/components/dock-height";
 import { createDockMorph } from "@/components/dock-morph";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
@@ -858,7 +859,7 @@ export function Chat({
 				const entry = readOpeningPromptEntry(chatId);
 				const prompt = initialPrompt || entry?.text; // Legacy links still work.
 				if (!initialPromptOwed(initialMessages, prompt)) {
-					if (initialMessages.some(m => m.role === "user" || m.role === "assistant")) clearOpeningPrompt(chatId);
+					if (conversationBegun(initialMessages)) clearOpeningPrompt(chatId);
 					return;
 				}
 				openingDraftRef.current = prompt!;
@@ -1699,6 +1700,8 @@ export function Chat({
 					{/* The plan chip (owner, plan-placement round): session-level
 					    structure beside the phase chip — access to the full-DAG popup
 					    at every width; the marginalia is the wide-screen glance view. */}
+					{/* This fork: a course session's way back, with the goal's meter. */}
+					<CourseSessionChip chatId={chatId} />
 					{planTree && (
 						<Hint label="Open the full plan" side="bottom">
 <button
@@ -2292,9 +2295,11 @@ export type EscAbortTarget = "side-thread" | "mermaid" | "plan" | "setup" | "que
  * (owner report, 2026-10-04: the turn went dead behind it — the old
  * `length === 0` check saw the marker and refused to fire).
  */
-export function initialPromptOwed(messages: readonly { role: string }[], prompt: string | undefined): boolean {
+export function initialPromptOwed(messages: readonly { role: string; id?: string }[], prompt: string | undefined): boolean {
 	if (!prompt) return false;
-	return !messages.some((m) => m.role === "user" || m.role === "assistant");
+	// A course session's seeded context (its assessment is an assistant
+	// message) is scaffolding too — it must not swallow the first send.
+	return !conversationBegun(messages);
 }
 
 export function escAbortTarget(s: {

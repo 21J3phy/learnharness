@@ -41,7 +41,7 @@ export function Home({
 	const router = useRouter();
 	const pathname = usePathname();
 	const bodyRef = useRef<HTMLDivElement>(null);
-	const surfaceTarget = usePageSurfaceBoundary({ active: pathname === "/", viewKey: "/", bodyRef });
+	const surfaceTarget = usePageSurfaceBoundary({ active: pathname === "/graph", viewKey: "/graph", bodyRef });
 	const chromeStyle = useSurfaceChromeStyle(surfaceTarget);
 	const [topic, setTopic] = useState("");
 	/* The topic MIRROR ("nothing gets lost" round, 2026-10-01 — same

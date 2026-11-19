@@ -64,11 +64,12 @@ describe("presets", () => {
 			assert.ok(sanitizeThemeFile(t), t.id);
 			assert.ok(!ids.has(t.id), `duplicate ${t.id}`);
 			ids.add(t.id);
-			assert.equal(t.id, themeIdFromName(t.name));
+			// The default theme keeps the reserved id "default" under its own name (Paper).
+			if (t.id !== DEFAULT_THEME.id) assert.equal(t.id, themeIdFromName(t.name));
 			assert.equal(t.builtin, true);
 		}
 		assert.deepEqual([...ids], [
-			"default", "catppuccin-latte", "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha",
+			"default", "graphite", "catppuccin-latte", "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha",
 			"rose-pine", "rose-pine-dawn", "gruvbox-dark", "ivory", "pastel", "nvchad-onedark",
 		]);
 	});
@@ -95,7 +96,7 @@ describe("themeVars — the adapter", () => {
 	it("Default reproduces app/globals.css's literals exactly", () => {
 		const css = fs.readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 		const block = cssBlock(css, ":root,\n.dark");
-		for (const [token, value] of Object.entries(themeVars(DEFAULT_THEME.colors, "dark"))) {
+		for (const [token, value] of Object.entries(themeVars(DEFAULT_THEME.colors, DEFAULT_THEME.mode))) {
 			assert.equal(block.get(token), value, token);
 		}
 	});

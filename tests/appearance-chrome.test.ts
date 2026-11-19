@@ -36,20 +36,20 @@ it("selected custom files resolve before a renderer; missing or malformed files 
 	}
 	fs.unlinkSync(path.join(data, "themes", "custom-paper.json"));
 	record({ theme: "custom-paper", background: "#abc" });
-	assert.deepEqual(readAppearance(data), { mode: "dark", background: "#abc" });
+	assert.deepEqual(readAppearance(data), { mode: DEFAULT_THEME.mode, background: "#abc" });
 	for (const theme of ["../outside", "__proto__", "constructor", "unknown"]) {
 		record({ theme });
-		assert.deepEqual(readAppearance(data), { mode: "dark", background: DEFAULT_THEME.colors.background });
+		assert.deepEqual(readAppearance(data), { mode: DEFAULT_THEME.mode, background: DEFAULT_THEME.colors.background });
 	}
 });
 
 it("absent and corrupt records fall back; renderer reports are normalized", () => {
-	assert.deepEqual(readAppearance(data), { mode: "dark", background: "#141414" });
+	assert.deepEqual(readAppearance(data), { mode: DEFAULT_THEME.mode, background: DEFAULT_THEME.colors.background });
 	fs.writeFileSync(path.join(data, "settings.json"), "{");
-	assert.deepEqual(readAppearance(data), { mode: "dark", background: "#141414" });
+	assert.deepEqual(readAppearance(data), { mode: DEFAULT_THEME.mode, background: DEFAULT_THEME.colors.background });
 	for (const theme of [null, [], {}, { toString: null }, 123, true]) {
 		record({ theme });
-		assert.deepEqual(readAppearance(data), { mode: "dark", background: "#141414" });
+		assert.deepEqual(readAppearance(data), { mode: DEFAULT_THEME.mode, background: DEFAULT_THEME.colors.background });
 	}
 	assert.deepEqual(normalizeAppearance({ mode: "light", background: "#fff" }), { mode: "light", background: "#fff" });
 	assert.deepEqual(normalizeAppearance({ mode: "system", background: "white" }), { mode: "dark", background: null });
