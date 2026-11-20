@@ -39,7 +39,7 @@ import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
 import { clearOpeningPrompt, readOpeningPromptEntry, stashOpeningPrompt, OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
-import { CourseSessionChip } from "@/components/course/session-chip";
+import { CourseCrumb, CourseSessionChip, useCourseLink } from "@/components/course/session-chip";
 import { forwardDockWheel, useDockHeight } from "@/components/dock-height";
 import { createDockMorph } from "@/components/dock-morph";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
@@ -369,6 +369,7 @@ export function Chat({
 	// its 2.5s poll is only a backstop.
 	const [titleText, setTitleText] = useState(title);
 	const [renaming, setRenaming] = useState(false);
+	const courseLink = useCourseLink(chatId);
 	const [titleDraft, setTitleDraft] = useState("");
 	const titleInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -1665,7 +1666,7 @@ export function Chat({
 								data-plugin-chrome-title
 								aria-label="Session title"
 								title="Rename this session"
-								className="lh-no-drag min-w-[8ch] max-w-[70%] shrink-0 bg-transparent font-title text-3xl tracking-tight caret-current outline-none [field-sizing:content]"
+								className="lh-no-drag min-w-[8ch] max-w-[70%] shrink-0 bg-transparent font-title text-[22px] tracking-tight caret-current outline-none [field-sizing:content]"
 							/>
 							{/* flex-1 spacer during rename too, so the chips stay at
 							    the right edge; clicks here commit via the header
@@ -1674,6 +1675,8 @@ export function Chat({
 						</>
 					) : (
 					<>
+						{/* This fork: the course this session belongs to, and the way back. */}
+						<CourseCrumb link={courseLink} />
 						<Hint
 							// F2 renames (registry) — surfaced on the hover.
 							label="Rename session"
@@ -1687,7 +1690,7 @@ export function Chat({
 								setRenaming(true);
 							}}
 							data-plugin-chrome-title
-							className="lh-no-drag -mx-1.5 min-w-4 shrink cursor-text truncate rounded-md px-1.5 text-left font-title text-3xl tracking-tight transition-colors hover:bg-accent"
+							className="lh-no-drag -mx-1.5 min-w-4 shrink cursor-text truncate rounded-md px-1.5 text-left font-title text-[22px] tracking-tight transition-colors hover:bg-accent"
 						>
 							{titleText}
 							</button>
@@ -1700,8 +1703,8 @@ export function Chat({
 					{/* The plan chip (owner, plan-placement round): session-level
 					    structure beside the phase chip — access to the full-DAG popup
 					    at every width; the marginalia is the wide-screen glance view. */}
-					{/* This fork: a course session's way back, with the goal's meter. */}
-					<CourseSessionChip chatId={chatId} />
+					{/* This fork: a course session's progress and the goal's meter. */}
+					<CourseSessionChip link={courseLink} />
 					{planTree && (
 						<Hint label="Open the full plan" side="bottom">
 <button
@@ -1711,7 +1714,7 @@ export function Chat({
 								blurAfterPointerClick(e);
 								setPlanOpen(true);
 							}}
-							className="lh-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+							className="lh-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 px-2.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
 						>
 							<WaypointsIcon className="size-3.5 text-primary" aria-hidden />
 							Plan
@@ -1738,7 +1741,8 @@ export function Chat({
 							<DumbbellIcon className="size-3" />
 							Practice
 						</span>
-					) : (
+					) : !courseLink && (
+						// A course session never probes: it has no phase to show.
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
 					)}
 					<PluginSessionTopBarActions readContext={actionContext} captureContext={captureActionContext} refreshRef={refreshPluginActions} />

@@ -10,6 +10,16 @@ This fork adds one layer on top of LearnHarness: a **course** built from your ow
 4. **Get a plan.** The concepts you don't hold yet are laid over the days until the exam, prerequisites first, within the time you said you have. With enough runway the last days are a practice exam and a final review. The plan can be rebuilt at any time (missed days, new estimates, different hours).
 5. **Study.** Starting a session opens a teaching chat. The teacher receives the session's concepts, excerpts of your material, and your level on each concept as a concluded assessment, so it plans and starts teaching without probing again.
 
+## The screens
+
+- **Home** is what today asks for. Each course shows its meter and its next step, in the order of the flow above: add material, set a goal, take the diagnostic, build the plan, then the session that is due. A due session starts from here in one click. Courses are listed by urgency: a session due today first, then the nearest exam.
+- **A course** leads with the goal's meter and the one next step, then the days up to the exam, then the map.
+- **The map** has two levels. Each unit is one line with how much of it you hold; opening a unit shows its concepts in teaching order. A short course starts fully open; a long one opens at the unit of the session that is due. Pointing at a concept draws what it rests on and what it leads to, and a link into a closed unit ends at that unit's line.
+- **The sidebar** is organised by course. A course's study sessions sit under it while you are in the course; chats started outside any course come after, under "Other chats". Search covers every session.
+- **A session's chat** names its course before the title (the way back), and shows how many of the session's concepts have been checked next to the goal's meter.
+
+A learning session of three or more concepts is named after its unit, numbered when the unit runs over several sessions ("Determinants, part 2"); the course page lists the concepts underneath.
+
 ## The knowledge meter
 
 The meter is the share of a goal's concepts you are estimated to hold. It is derived, never stored:
@@ -29,10 +39,10 @@ Checks in a session are traced to concepts through the lesson plan: the teacher 
 | The three model agents: read a part, organize the course, write questions | `src/agent/subagents/course-agents.ts` |
 | The service: build, goals, diagnostic, plan, sessions, evidence sync | `src/server/courses.ts` |
 | Routes | `app/api/courses/**`, `app/api/chats/[id]/course` |
-| Screens | `components/course/**`, `app/page.tsx`, `app/course/[id]/page.tsx` |
+| Screens | `components/course/**`, `app/page.tsx`, `app/course/[id]/page.tsx`, the course groups in `components/sidebar.tsx` |
 | Tests for the pure logic | `tests/course-core.test.ts` |
 
-The home page is now the list of courses. The free-form knowledge graph that used to be home is at `/graph` (sidebar: Knowledge graph).
+The free-form knowledge graph that used to be home is at `/graph` (sidebar: Knowledge graph), and a chat outside any course starts from the sidebar's "New chat".
 
 ## Models
 

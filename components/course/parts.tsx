@@ -36,6 +36,13 @@ export function awayDays(n: number): string {
 	return n > 0 ? `in ${n} days` : `${-n} days ago`;
 }
 
+/** A length of study time: "50 min", "2 h", "2 h 40 min". */
+export function duration(minutes: number): string {
+	if (minutes < 60) return `${minutes} min`;
+	const h = Math.floor(minutes / 60), m = minutes % 60;
+	return m === 0 ? `${h} h` : `${h} h ${m} min`;
+}
+
 // ─── the highlighter ─────────────────────────────────────────────────────────
 
 /** Inline text marked the way the learner holds it: a full stroke when

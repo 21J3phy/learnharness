@@ -1,9 +1,9 @@
-import { courseHttp, createCourse, listCourses } from "@/src/server";
+import { courseHttp, courseToday, createCourse, listCourses } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-	return courseHttp(() => ({ courses: listCourses() }));
+	return courseHttp(() => ({ courses: listCourses(), today: courseToday() }));
 }
 
 export async function POST(req: Request) {

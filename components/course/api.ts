@@ -41,7 +41,7 @@ const json = (method: string, body?: unknown): RequestInit => ({
 });
 
 export const courseApi = {
-	list: () => send<{ courses: CourseSummary[] }>("/api/courses"),
+	list: () => send<{ courses: CourseSummary[]; today: string }>("/api/courses"),
 	create: (title: string) => send<CourseView>("/api/courses", json("POST", { title })),
 	get: (id: string) => send<CourseView>(`/api/courses/${id}`),
 	rename: (id: string, title: string) => send<CourseView>(`/api/courses/${id}`, json("PATCH", { title })),
@@ -103,12 +103,22 @@ export function useCourse(id: string, initial: CourseView | null) {
 	return { course, missing, refresh, adopt };
 }
 
-export function useCourses(initial: CourseSummary[]) {
-	const [courses, setCourses] = useState(initial);
+/** Every course's summary, kept current. `today` is the server's calendar
+ *  day (null until the first read when no initial list was given). */
+export function useCourses(initial: CourseSummary[] | null, initialToday: string | null = null) {
+	const [state, setState] = useState<{ courses: CourseSummary[] | null; today: string | null }>({ courses: initial, today: initialToday });
+	const latest = useRef(0);
 	const refresh = useCallback(async () => {
-		try { setCourses((await courseApi.list()).courses); } catch { /* keep the last list */ }
+		const ticket = ++latest.current;
+		try {
+			const next = await courseApi.list();
+			if (ticket === latest.current) setState(next);
+		} catch { /* keep the last list */ }
 	}, []);
+	useEffect(() => { if (initial === null) void refresh(); }, [initial, refresh]);
 	useServerEvent("courses-changed", () => { void refresh(); });
+	// A session's checks move its course's meter and step.
+	useServerEvent("turn-settled", () => { void refresh(); });
 	useServerResync(() => { void refresh(); });
-	return { courses, refresh };
+	return { courses: state.courses, today: state.today, refresh };
 }

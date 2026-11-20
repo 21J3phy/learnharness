@@ -321,7 +321,7 @@ const KIND_ICON: Record<JobKind, typeof SearchIcon> = {
 /** Abort states per blob id: pending (fired) / failed (backend absent). */
 type AbortState = "pending" | "failed";
 
-export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
+export function ActivitySection({ feed: feedProp, hideWhenEmpty = false }: { feed?: ActivityFeed; /** Render nothing while no background work runs. */ hideWhenEmpty?: boolean }) {
 	const ctx = useContext(ActivityContext);
 	const feed = feedProp ?? ctx.feed;
 	const refresh = ctx.refresh;
@@ -376,9 +376,10 @@ export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
 	// sidebar's own edge line, the header matches the "Sessions" label, the
 	// rows match the session rows' hover. Empty means empty: the header sits
 	// alone (the cost span is population, not decoration).
+	if (hideWhenEmpty && blobs.length === 0) return null;
 	return (
 		<section data-testid="activity-section" className="border-t border-border px-3 pb-3 pt-2">
-			<div className="mb-1 flex items-center gap-1.5 text-xs uppercase tracking-widest text-muted-foreground/70">
+			<div className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground/80">
 				<ActivityIcon className="size-3" />
 				Background agents
 				{blobs.length > 0 && (

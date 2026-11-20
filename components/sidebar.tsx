@@ -6,10 +6,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode, ThemeMode } from "@/src/core";
-import { DumbbellIcon, LibraryIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
+import { CheckIcon, DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
-import { LhMark } from "@/components/lh-mark";
+import { useCourses } from "@/components/course/api";
+import { Tex, awayDays } from "@/components/course/parts";
+import { byUrgency, stepText } from "@/components/course/step";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { SettingsDialogProvider, useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
@@ -19,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { fuzzyScore } from "@/src/core";
 import { useServerEvent, useServerResync } from "@/components/server-events";
-import type { ChatListItem } from "@/src/core";
+import type { ChatListItem, CourseSummary } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { PluginWidgets } from "@/components/plugins";
@@ -331,8 +333,8 @@ export function SessionRow({
 				    the meta line below stays JetBrains Mono (machine data). One
 				    rule, finally applied to the picker too (owner, typography
 				    round): mono = chrome, Source Sans = human words. */}
-				<span className="block truncate font-prose text-(length:--lh-prose-size)">{chat.title}</span>
-				<span className="block text-xs text-muted-foreground">{sessionMeta(chat)}</span>
+				<span className="block truncate text-[14px] leading-snug"><Tex>{chat.title}</Tex></span>
+				<span className="mt-0.5 block text-xs text-muted-foreground">{sessionMeta(chat)}</span>
 			</span>
 			{/* The dumbbell rides the FAR RIGHT (owner round 6, 2026-10-05) —
 			    was left of the name; right-aligned keeps the titles flush with
@@ -397,26 +399,80 @@ export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; on
 	);
 }
 
-/** The three-way kind filter (practice sessions, owner 2026-10-04):
- *  Teaching / All / Practice — a client-side filter over the same
- *  snapshot, persisted in localStorage, defaulting to All. */
-export type SessionKindFilter = "teach" | "all" | "practice";
-const KIND_FILTER_KEY = "lh:session-kind-filter";
+/**
+ * A study session inside its course's group: one line. A finished session
+ * is ticked and recedes; one waiting on an answer carries a dot.
+ */
+export function CourseSessionRow({
+	chat, done, active, onOpen, kbdSelected = false, onContextMenu,
+}: {
+	chat: ChatListItem;
+	/** The plan counts this session as done. */
+	done: boolean;
+	active: boolean;
+	onOpen: () => void;
+	kbdSelected?: boolean;
+	onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+}) {
+	const busy = chat.busy || chat.compacting;
+	return (
+		<button
+			type="button"
+			onClick={onOpen}
+			onContextMenu={onContextMenu}
+			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
+			title={chat.title}
+			className={cn(
+				"mb-px flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13.5px] leading-snug transition-colors hover:bg-accent",
+				active && "bg-accent",
+				kbdSelected && !active && "bg-accent/60 ring-1 ring-border",
+			)}
+		>
+			<SessionStatus busy={busy} />
+			<span className={cn("min-w-0 flex-1 truncate", done && !active && "text-muted-foreground")}><Tex>{chat.title}</Tex></span>
+			{done
+				? <CheckIcon className="size-3.5 shrink-0 text-muted-foreground" aria-label="Done" />
+				: chat.pendingQuestion && !busy && <span className="size-1.5 shrink-0 rounded-full bg-[color:var(--lh-accent)]" aria-label="Waiting for your answer" />}
+		</button>
+	);
+}
+
+/** A course in the sidebar: its name, what it is heading for, and how much
+ *  of that is known. */
+function CourseLink({ course, active }: { course: CourseSummary; active: boolean }) {
+	const percent = Math.round(course.knowledge * 100);
+	const goal = course.nextGoal;
+	return (
+		<Link
+			href={`/course/${course.id}`}
+			data-testid="sidebar-course"
+			aria-current={active ? "page" : undefined}
+			className={cn("block rounded-lg px-3 py-2 transition-colors hover:bg-accent", active && "bg-accent")}
+		>
+			<span className="flex items-baseline gap-2">
+				<span className="min-w-0 flex-1 truncate text-[14px] font-medium leading-snug"><Tex>{course.title}</Tex></span>
+				{course.measured && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{percent}%</span>}
+			</span>
+			<span className="mt-0.5 block truncate text-xs text-muted-foreground">
+				{goal && goal.daysLeft >= 0 ? `${goal.title} ${awayDays(goal.daysLeft)}` : stepText(course.step)}
+			</span>
+			{course.measured && (
+				<span className="mt-2 block h-[3px] overflow-hidden rounded-full bg-border/70" aria-hidden="true">
+					<span className="block h-full rounded-full bg-[color:var(--lh-accent)] transition-[width] duration-500" style={{ width: `${percent}%` }} />
+				</span>
+			)}
+		</Link>
+	);
+}
 
 function SessionsSidebar() {
 	const interactions = useInteractionLayers();
 	const { open, toggle } = useSidebar();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
-	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
-	useEffect(() => {
-		const stored = window.localStorage.getItem(KIND_FILTER_KEY);
-		if (stored === "teach" || stored === "all" || stored === "practice") setKindFilter(stored);
-	}, []);
-	const setFilter = useCallback((f: SessionKindFilter) => {
-		setKindFilter(f);
-		window.localStorage.setItem(KIND_FILTER_KEY, f);
-	}, []);
+	// This fork: the sidebar is organised by course. A course's study
+	// sessions sit under it; chats started outside a course come after.
+	const listed = useCourses(null);
 	const pathname = usePathname();
 	const router = useRouter();
 	const { open: openSettings } = useSettingsDialog();
@@ -430,22 +486,42 @@ function SessionsSidebar() {
 	}, [router]);
 
 	/* FUZZY (owner round 8, 2026-10-05): subsequence match ranked by
-	 * fuzzyScore — prefix beats word-boundary beats scattered. Empty query
-	 * keeps the natural list order (scores are all 0, sort is stable). */
-	const shown = useMemo(() => {
+	 * fuzzyScore — prefix beats word-boundary beats scattered. A query
+	 * replaces the grouped view with one flat list of matches. */
+	const results = useMemo(() => {
 		const q = query.trim();
-		let list = chats;
-		if (list && kindFilter !== "all") {
-			list = list.filter((c) => (c.kind ?? "teach") === kindFilter);
-		}
-		if (!list) return list;
-		if (!q) return list;
-		return list
+		if (!q || !chats) return null;
+		return chats
 			.map((c) => ({ c, score: fuzzyScore(q, c.title) }))
-			.filter((r): r is { c: (typeof list)[number]; score: number } => r.score !== null)
+			.filter((r): r is { c: ChatListItem; score: number } => r.score !== null)
 			.sort((a, b) => b.score - a.score)
 			.map((r) => r.c);
-	}, [chats, query, kindFilter]);
+	}, [chats, query]);
+
+	const courses = useMemo(() => (listed.courses ? byUrgency(listed.courses, listed.today ?? "") : null), [listed.courses, listed.today]);
+	const activeChatId = pathname.startsWith("/chat/") ? pathname.slice(6) : null;
+	const groups = useMemo(() => {
+		const byId = new Map((chats ?? []).map((c) => [c.id, c]));
+		const owned = new Set<string>();
+		const list = (courses ?? []).map((course) => {
+			const sessions = course.sessions.flatMap((s) => {
+				const chat = byId.get(s.chatId);
+				if (!chat || owned.has(chat.id)) return [];
+				owned.add(chat.id);
+				return [{ chat, done: s.done }];
+			});
+			const active = pathname === `/course/${course.id}` || sessions.some((s) => s.chat.id === activeChatId);
+			// Its sessions show while the learner is in the course (always, when it is the only one).
+			return { course, sessions, active, open: active || (courses ?? []).length === 1 };
+		});
+		return { list, others: (chats ?? []).filter((c) => !owned.has(c.id)) };
+	}, [courses, chats, pathname, activeChatId]);
+	/** The session rows in the order they are drawn: what ↑/↓ walks. */
+	const shown = useMemo(
+		() => results ?? (chats ? [...groups.list.flatMap((g) => (g.open ? g.sessions.map((s) => s.chat) : [])), ...groups.others] : null),
+		[results, chats, groups],
+	);
+	const walkIndex = useMemo(() => new Map((shown ?? []).map((c, i) => [c.id, i])), [shown]);
 
 	const refreshInFlightRef = useRef(false);
 	const refresh = useCallback(async () => {
@@ -642,7 +718,7 @@ function SessionsSidebar() {
 	// buttons, so the index matches).
 	useEffect(() => {
 		if (kbdIndex === null) return;
-		listRef.current?.querySelectorAll("button")[kbdIndex]?.scrollIntoView({ block: "nearest" });
+		listRef.current?.querySelectorAll('button[data-testid^="session-row"]')[kbdIndex]?.scrollIntoView({ block: "nearest" });
 	}, [kbdIndex]);
 
 	useEffect(() => {
@@ -651,6 +727,21 @@ function SessionsSidebar() {
 		// Opening + navigation refetch; while open, the events channel owns
 		// freshness (S6) — no interval, nothing standing.
 	}, [open, pathname, refresh]);
+
+	/** One session row — in a course's group (one line) or on its own (two). */
+	const sessionRow = (c: ChatListItem, grouped: boolean, done = false) => {
+		if (renamingId === c.id) {
+			return <RenameRow key={c.id} chat={c} onCommit={(next) => void commitRename(c.id, next)} onCancel={() => setRenamingId(null)} />;
+		}
+		const props = {
+			chat: c,
+			active: pathname === `/chat/${c.id}`,
+			kbdSelected: walkIndex.get(c.id) === kbdIndex,
+			onOpen: () => { setKbdIndex(null); router.push(`/chat/${c.id}`); },
+			onContextMenu: (e: React.MouseEvent<HTMLButtonElement>) => openContext(e, c),
+		};
+		return grouped ? <CourseSessionRow key={c.id} {...props} done={done} /> : <SessionRow key={c.id} {...props} />;
+	};
 
 	return (
 		<aside
@@ -669,22 +760,14 @@ function SessionsSidebar() {
 					    with the lights' own edge-inset as the gap. */}
 					{/* Hover mirrors the ghost toggle buttons (owner ask, 2026-09-17):
 					    same size-9 chip geometry, same hover:bg-accent treatment. */}
-					<Hint
-						// Kept (owner, subtlety round 2026-09-25) but to the RIGHT
-						// of the logo, carrying its real shortcut: ⌘G jumps to
-						// the graph view (keyboard-shortcuts routes it to "/",
-						// the same destination as this logo).
-						label="Courses"
-						side="right"
+					<Link
+						href="/"
+						aria-label="Syllabus, home"
+						data-testid="nav-courses"
+						className="lh-no-drag flex h-9 shrink-0 items-center rounded-md px-2 font-title text-[21px] leading-none transition-colors hover:bg-accent dark:hover:bg-accent/50"
 					>
-						<Link
-							href="/"
-							aria-label="Courses"
-							className="lh-no-drag flex size-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50"
-						>
-							<LhMark className="size-6" />
-						</Link>
-					</Hint>
+						Syllabus
+					</Link>
 					<Hint label="Close sidebar" action="toggle-sidebar">
 						<Button
 							variant="ghost"
@@ -698,60 +781,9 @@ function SessionsSidebar() {
 					</Hint>
 				</div>
 
-				{/* Core doors always lead explicit plugin sidebar placements. */}
-				<PluginSidebarActions>
-					{/* This fork's front doors: the courses home, and the free-form
-					    knowledge graph that used to be the home view. */}
-					<Link
-						href="/"
-						data-testid="nav-courses"
-						className={cn(
-							"flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent hover:text-foreground",
-							pathname === "/" || pathname.startsWith("/course/") ? "text-foreground" : "text-muted-foreground",
-						)}
-					>
-						<LibraryIcon className="size-3 shrink-0" />
-						<span className="min-w-0 truncate">Courses</span>
-					</Link>
-					<Link
-						href="/graph"
-						data-testid="nav-graph"
-						className={cn(
-							"flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent hover:text-foreground",
-							pathname === "/graph" ? "text-foreground" : "text-muted-foreground",
-						)}
-					>
-						<WaypointsIcon className="size-3 shrink-0" />
-						<span className="min-w-0 truncate">Knowledge graph</span>
-					</Link>
-					<button
-						type="button"
-						data-testid="new-session"
-						title="Teaching"
-						onClick={() => void newSession()}
-						className="flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-					>
-						<PlusIcon className="size-3 shrink-0" />
-						<span className="min-w-0 truncate">Teaching</span>
-						<span className="sr-only">create a new teaching session</span>
-					</button>
-					<button
-						type="button"
-						data-testid="new-session-practice"
-						title="Practice"
-						onClick={() => router.push("/chat/new?mode=practice")}
-						className="flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-					>
-						<DumbbellIcon className="size-3 shrink-0" />
-						<span className="min-w-0 truncate">Practice</span>
-						<span className="sr-only">create a new practice session</span>
-					</button>
-				</PluginSidebarActions>
-
-				<div className="mx-3 mb-2 flex items-center gap-2">
-					<span className="text-sm text-muted-foreground/70">Sessions</span>
+				<div className="mx-3 mb-3">
 					<Hint label="Search sessions" action="sessions-search" side="bottom">
-					<span className="relative flex-1">
+					<span className="relative block">
 						<Input
 							ref={searchRef}
 							data-testid="session-search"
@@ -802,80 +834,82 @@ function SessionsSidebar() {
 									e.currentTarget.blur();
 								}
 							}}
-							placeholder="Search…"
+							placeholder="Search sessions"
 							aria-label="Search sessions"
-							className="h-6 rounded-sm border-border bg-background pl-6 text-xs placeholder:text-muted-foreground/60"
+							className="h-8 rounded-md border-border/80 bg-background pl-8 text-[13px] placeholder:text-muted-foreground/70"
 						/>
-						<SearchIcon className="pointer-events-none absolute left-1.5 top-1/2 size-3 -translate-y-1/2 text-muted-foreground/70" />
+						<SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70" />
 					</span>
 					</Hint>
 				</div>
 
-				{/* The three-way filter, HEADING THE LIST (owner round 8b,
-				    2026-10-05 — moved below the search): it scopes what the
-				    list shows, so it sits directly above it as a caption row;
-				    search stays the top muscle-memory target. Order: Teaching /
-				    Practice / All — the real modes first, "All" as the escape
-				    hatch on the right, mirroring the create-buttons above.
-				    Persisted client-side. */}
-				<div className="mx-3 flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="session-kind-filter">
-					{(["teach", "practice", "all"] as const).map((f) => (
-						<button
-							key={f}
-							type="button"
-							data-testid={`kind-filter-${f}`}
-							onClick={() => setFilter(f)}
-							className={cn(
-								"flex-1 rounded-sm px-2 py-1 text-xs transition-colors",
-								kindFilter === f
-									? "bg-accent text-foreground"
-									: "text-muted-foreground hover:text-foreground",
-							)}
-						>
-							{f === "teach" ? "Teaching" : f === "all" ? "All" : "Practice"}
-						</button>
-					))}
-				</div>
-
-				<div ref={listRef} className="flex-1 overflow-y-auto p-2">
-					{shown === null ? (
-						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
-					) : shown.length === 0 ? (
-						<div className="px-2 py-4 text-xs text-muted-foreground">
-							{query.trim() ? "No sessions match." : "No sessions yet."}
-						</div>
+				<div ref={listRef} className="flex-1 overflow-y-auto px-2 pb-2">
+					{shown === null || courses === null ? null : results !== null ? (
+						results.length === 0
+							? <div className="px-3 py-3 text-xs text-muted-foreground">No sessions match.</div>
+							: results.map((c) => sessionRow(c, false))
 					) : (
-						shown.map((c, i) =>
-							renamingId === c.id ? (
-								<RenameRow
-									key={c.id}
-									chat={c}
-									onCommit={(next) => void commitRename(c.id, next)}
-									onCancel={() => setRenamingId(null)}
-								/>
-							) : (
-								<SessionRow
-									key={c.id}
-									chat={c}
-									active={pathname === `/chat/${c.id}`}
-									kbdSelected={i === kbdIndex}
-									onOpen={() => {
-										setKbdIndex(null);
-										router.push(`/chat/${c.id}`);
-									}}
-									onContextMenu={(e) => openContext(e, c)}
-								/>
-							),
-						)
+						<>
+							{groups.list.length === 0 && (
+								<p className="px-3 py-2 text-[13px] leading-relaxed text-muted-foreground">
+									No courses yet. <Link href="/" className="underline decoration-border underline-offset-4 hover:text-foreground">Drop in a textbook</Link> to start one.
+								</p>
+							)}
+							<nav aria-label="Courses">
+								{groups.list.map(({ course, sessions, active, open: expanded }) => (
+									<div key={course.id} className="mb-1.5" data-testid="sidebar-course-group">
+										<CourseLink course={course} active={pathname === `/course/${course.id}` || (active && !expanded)} />
+										{expanded && sessions.length > 0 && (
+											<div className="ml-3 mt-0.5 border-l border-border/80 pl-1.5">
+												{sessions.map(({ chat, done }) => sessionRow(chat, true, done))}
+											</div>
+										)}
+									</div>
+								))}
+							</nav>
+							{groups.others.length > 0 && (
+								<section aria-label="Other chats" className="mt-4">
+									<h2 className="px-3 pb-1 text-xs text-muted-foreground/80">Other chats</h2>
+									{groups.others.map((c) => sessionRow(c, false))}
+								</section>
+							)}
+						</>
 					)}
 				</div>
+
+				{/* The quiet doors: a chat outside any course, and the free-form
+				    graph. Core doors always lead explicit plugin sidebar placements. */}
+				<PluginSidebarActions>
+					<button
+						type="button"
+						data-testid="new-session"
+						onClick={() => void newSession()}
+						className="flex min-w-0 w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+					>
+						<PlusIcon className="size-3.5 shrink-0" />
+						<span className="min-w-0 truncate">New chat</span>
+						<span className="sr-only">outside a course</span>
+					</button>
+					<Link
+						href="/graph"
+						data-testid="nav-graph"
+						className={cn(
+							"flex min-w-0 w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent hover:text-foreground",
+							pathname === "/graph" ? "text-foreground" : "text-muted-foreground",
+						)}
+					>
+						<WaypointsIcon className="size-3.5 shrink-0" />
+						<span className="min-w-0 truncate">Knowledge graph</span>
+					</Link>
+				</PluginSidebarActions>
 
 					{/* Background agents (owner, sidebar round): the section is
 					    ALWAYS here — empty means empty (the header sits alone); it
 					    populates and grows when processes run. The session list is
 					    flex-1, so this pins to the bottom. Sidebar closed = the
 					    learner opted out (no ambient signal, user decision). */}
-					<ActivitySection />
+					{/* This fork: shown only while something runs — a course's sidebar stays quiet. */}
+					<ActivitySection hideWhenEmpty />
 
 					{/* Settings entry (settings-app wave): same row language as
 					    New session — quiet, bottom-pinned, opens the centered
@@ -886,9 +920,9 @@ function SessionsSidebar() {
 								type="button"
 								onClick={() => openSettings()}
 								data-testid="settings-entry"
-								className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+								className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 							>
-								<SettingsIcon className="size-3" />
+								<SettingsIcon className="size-3.5" />
 								Settings
 							</button>
 						</Hint>

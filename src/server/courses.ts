@@ -157,6 +157,9 @@ function settleInterrupted(course: Course): Course {
 
 // ─── reading ─────────────────────────────────────────────────────────────────
 
+/** The learner's calendar day, as every course view dates things. */
+export const courseToday = (): string => today();
+
 export function listCourses(): CourseSummary[] {
 	const day = today();
 	return courseStore.list().map((c) => summarizeCourse(settleInterrupted(c), day));
@@ -945,6 +948,7 @@ export interface ChatCourseLink {
 	daysLeft: number;
 	sessionId: string;
 	sessionTitle: string;
+	sessionKind: PlanSession["kind"];
 	sessionStatus: PlanSession["status"];
 	/** Checked concepts / concepts in the session. */
 	checked: number;
@@ -970,6 +974,7 @@ export function courseLinkForChat(chatId: string): ChatCourseLink | null {
 				daysLeft: daysBetween(today(), goal.date),
 				sessionId: session.id,
 				sessionTitle: session.title,
+				sessionKind: session.kind,
 				sessionStatus: session.status,
 				checked: session.conceptIds.filter((id) => checked.has(id)).length,
 				total: session.conceptIds.length,

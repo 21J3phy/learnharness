@@ -23,6 +23,7 @@ import {
 	progressOf,
 	publicCourse,
 	slugify,
+	stepOf,
 	summarizeCourse,
 	uniqueSlug,
 	type Course,
@@ -360,4 +361,59 @@ test("the meter and the per-concept estimates agree", () => {
 	const mastery = masteryOf(c);
 	const mean = all.reduce((sum, id) => sum + mastery.get(id)!.p, 0) / all.length;
 	assert.ok(Math.abs(knowledgeOf(c, all).value! - mean) < 1e-12);
+});
+
+test("a long session is named after its unit, numbered when the unit runs over several", () => {
+	const c = course();
+	c.units = [{ id: "unit-a", title: "Determinants" }, { id: "unit-b", title: "Eigenvalues" }];
+	c.concepts = [
+		...Array.from({ length: 8 }, (_, i) => concept(`a${i}`, "unit-a", i > 0 ? [`a${i - 1}`] : [])),
+		...Array.from({ length: 4 }, (_, i) => concept(`b${i}`, "unit-b", i > 0 ? [`b${i - 1}`] : ["a7"])),
+	];
+	const g = goal(["unit-a", "unit-b"], "2026-12-20");
+	// 20 minutes a concept, 80 a day: four concepts to a session.
+	const plan = buildPlan(c, g, "2026-11-19", { minutesPerDay: 80, weekdays: [0, 1, 2, 3, 4, 5, 6] }, new Date("2026-11-19T09:00:00Z"));
+	assert.deepEqual(plan.sessions.filter((s) => s.kind === "learn").map((s) => s.title), ["Determinants, part 1", "Determinants, part 2", "Eigenvalues"]);
+	// One or two concepts are simply named.
+	const short = buildPlan(c, g, "2026-11-19", { minutesPerDay: 40, weekdays: [0, 1, 2, 3, 4, 5, 6] }, new Date("2026-11-19T09:00:00Z"));
+	assert.equal(short.sessions.find((s) => s.kind === "learn")!.title, "a0, then a1");
+});
+
+test("a course's next step follows the flow: goal, diagnostic, plan, then the session due", () => {
+	const today = "2026-11-19";
+	assert.deepEqual(stepOf({ ...course(), build: { status: "mapping", done: 0, total: 3, found: [] } }, today), { kind: "building" });
+	assert.deepEqual(stepOf({ ...course(), concepts: [] }, today), { kind: "material", failed: false });
+	assert.deepEqual(stepOf(course(), today), { kind: "goal" });
+
+	const fresh = goal(["unit-spaces"], "2026-12-01");
+	assert.deepEqual(stepOf(course([], [fresh]), today), { kind: "diagnostic", goalId: fresh.id, state: "new" });
+	const waiting: Diagnostic = { status: "ready", questions: [], answers: [] };
+	assert.deepEqual(stepOf(course([], [{ ...fresh, diagnostic: waiting }]), today), { kind: "diagnostic", goalId: fresh.id, state: "ready" });
+	const taken: Diagnostic = { status: "done", questions: [], answers: [] };
+	assert.deepEqual(stepOf(course([], [{ ...fresh, diagnostic: taken }]), today), { kind: "plan", goalId: fresh.id });
+
+	const c = course([], [{ ...fresh, diagnostic: taken }]);
+	const plan = buildPlan(c, c.goals[0]!, today, { minutesPerDay: 45, weekdays: [0, 1, 2, 3, 4, 5, 6] }, new Date("2026-11-19T09:00:00Z"));
+	c.goals[0]!.plan = plan;
+	const first = plan.sessions[0]!;
+	assert.deepEqual(stepOf(c, today), {
+		kind: "session", goalId: fresh.id, sessionId: first.id, title: first.title, date: first.date,
+		minutes: first.minutes, concepts: first.conceptIds.length, started: false, sessionKind: first.kind,
+	});
+	// A day later the first session is overdue; once everything is done there is nothing left.
+	assert.deepEqual(stepOf(c, addDays(first.date, 1)), { kind: "overdue", goalId: fresh.id, count: 1 });
+	for (const s of plan.sessions) s.status = "done";
+	assert.deepEqual(stepOf(c, today), { kind: "done", goalId: fresh.id });
+});
+
+test("a course summary carries its next step and the sessions that have a chat", () => {
+	const g = goal(["unit-spaces"], "2026-12-01");
+	const c = course([], [g]);
+	c.goals[0]!.plan = buildPlan(c, g, "2026-11-19", { minutesPerDay: 45, weekdays: [0, 1, 2, 3, 4, 5, 6] }, new Date("2026-11-19T09:00:00Z"));
+	const first = c.goals[0]!.plan.sessions[0]!;
+	first.chatId = "chat_1";
+	const summary = summarizeCourse(c, "2026-11-19");
+	assert.equal(summary.step.kind, "session");
+	assert.ok(summary.step.kind === "session" && summary.step.started, "the due session already has a chat");
+	assert.deepEqual(summary.sessions, [{ chatId: "chat_1", sessionId: first.id, goalId: g.id, title: first.title, done: false }]);
 });

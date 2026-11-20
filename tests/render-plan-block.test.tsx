@@ -232,9 +232,9 @@ describe("plan popup (live derivation)", () => {
 		assert.match(html, /data-testid="plan-node-a" data-status="visited"/);
 		assert.match(html, /data-testid="plan-node-b" data-status="current"/);
 		assert.match(html, /data-testid="plan-node-c" data-status="upcoming"/);
-		// The current node is the glow target: a faint yellow fill, blurred
+		// The current node is the glow target: a faint accent fill, blurred
 		// so it bleeds over the edges — static, no pulse (owner, round 6).
-		assert.match(html, /fill-yellow-400\/25/);
+		assert.ok(html.includes("fill-[color:var(--lh-accent)]/25"), "glow on the current node");
 		assert.match(html, /feGaussianBlur/);
 		assert.doesNotMatch(html, /animate-pulse/);
 		// Arrows into not-yet-visited nodes are grayed out (owner, round 6).

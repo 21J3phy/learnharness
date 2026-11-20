@@ -208,7 +208,23 @@ export interface CourseSummary {
 	knowledge: number;
 	measured: boolean;
 	nextGoal?: { id: string; title: string; date: string; daysLeft: number };
+	/** The one thing to do next in this course. */
+	step: CourseStep;
+	/** The study sessions that have a chat, in plan order. */
+	sessions: { chatId: string; sessionId: string; goalId: string; title: string; done: boolean }[];
 }
+
+/** What a course is waiting for, in the order the learner meets it:
+ *  material, a goal, the diagnostic, a plan, then the session that is due. */
+export type CourseStep =
+	| { kind: "building" }
+	| { kind: "material"; failed: boolean }
+	| { kind: "goal" }
+	| { kind: "diagnostic"; goalId: string; state: "new" | "writing" | "ready" | "in-progress" | "failed" }
+	| { kind: "plan"; goalId: string }
+	| { kind: "overdue"; goalId: string; count: number }
+	| { kind: "session"; goalId: string; sessionId: string; title: string; date: string; minutes: number; concepts: number; started: boolean; sessionKind: PlanSessionKind }
+	| { kind: "done"; goalId: string };
 
 // ─── ids and dates ───────────────────────────────────────────────────────────
 
@@ -583,16 +599,38 @@ const MINUTES_SHAKY = 10;
 const MINUTES_REVIEW = 15;
 const MINUTES_PRACTICE = 45;
 
-function sessionTitle(ids: readonly string[], course: Pick<Course, "concepts" | "units">, index: CourseIndex, todo: ReadonlySet<string>): string {
-	const concepts = ids.map((id) => index.byId.get(id)!);
-	const units = [...new Set(concepts.map((c) => c.unitId))];
-	if (units.length === 1) {
-		const unit = course.units.find((u) => u.id === units[0]);
-		const whole = course.concepts.filter((c) => c.unitId === units[0] && todo.has(c.id)).every((c) => ids.includes(c.id));
-		if (unit && whole) return unit.title;
+/** The unit most of a session's concepts belong to (the earlier one on a tie). */
+function mainUnit(ids: readonly string[], course: Pick<Course, "units">, index: CourseIndex): string | undefined {
+	const counts = new Map<string, number>();
+	for (const id of ids) {
+		const unit = index.byId.get(id)!.unitId;
+		counts.set(unit, (counts.get(unit) ?? 0) + 1);
 	}
-	if (concepts.length <= 2) return concepts.map((c) => c.title).join(", then ");
-	return `${concepts[0]!.title}, ${concepts[1]!.title} and ${concepts.length - 2} more`;
+	let best: string | undefined;
+	for (const unit of course.units) {
+		if ((counts.get(unit.id) ?? 0) > (best ? counts.get(best)! : 0)) best = unit.id;
+	}
+	return best;
+}
+
+/**
+ * Name each learning session. One or two concepts are named outright; a
+ * longer session takes the name of its unit, numbered when the unit runs
+ * over several sessions ("Determinants, part 2").
+ */
+function sessionTitles(packs: readonly (readonly string[])[], course: Pick<Course, "concepts" | "units">, index: CourseIndex): string[] {
+	const units = packs.map((ids) => (ids.length > 2 ? mainUnit(ids, course, index) : undefined));
+	const parts = new Map<string, number>();
+	for (const unit of units) if (unit) parts.set(unit, (parts.get(unit) ?? 0) + 1);
+	const seen = new Map<string, number>();
+	return packs.map((ids, i) => {
+		const unit = units[i];
+		const title = unit && course.units.find((u) => u.id === unit)?.title;
+		if (!unit || !title) return ids.map((id) => index.byId.get(id)!.title).join(", then ");
+		const n = (seen.get(unit) ?? 0) + 1;
+		seen.set(unit, n);
+		return parts.get(unit)! > 1 ? `${title}, part ${n}` : title;
+	});
 }
 
 /**
@@ -630,7 +668,6 @@ export function buildPlan(
 
 	const solid = (id: string) => mastery.get(id)!.state === "solid";
 	const todo = [...scope.assumed, ...scope.core].filter((id) => !solid(id)).sort((a, b) => index.rank.get(a)! - index.rank.get(b)!);
-	const todoSet = new Set(todo);
 	const cost = (id: string) => (mastery.get(id)!.state === "shaky" ? MINUTES_SHAKY : MINUTES_NEW);
 	const total = todo.reduce((sum, id) => sum + cost(id), 0);
 
@@ -661,6 +698,7 @@ export function buildPlan(
 		}
 		if (current.length > 0) packs.push(current);
 		const used = new Set<number>();
+		const titles = sessionTitles(packs, course, index);
 		packs.forEach((ids, i) => {
 			const at = Math.min(learnDays.length - 1, Math.floor((i * learnDays.length) / packs.length));
 			used.add(at);
@@ -668,7 +706,7 @@ export function buildPlan(
 				id: mk(learnDays[at]!, i),
 				date: learnDays[at]!,
 				kind: "learn",
-				title: sessionTitle(ids, course, index, todoSet),
+				title: titles[i]!,
 				conceptIds: ids,
 				minutes: Math.max(10, Math.round(ids.reduce((s, id) => s + cost(id), 0) / 5) * 5),
 				status: "upcoming",
@@ -797,6 +835,31 @@ export function conversationBegun(messages: readonly { role: string; id?: string
 
 // ─── views ───────────────────────────────────────────────────────────────────
 
+const BUILDING: ReadonlySet<BuildStatus> = new Set(["reading", "mapping", "organizing"]);
+
+/** Sessions the planner scheduled (not ones opened off-schedule from the map). */
+export const isScheduled = (session: Pick<PlanSession, "id">): boolean => !session.id.startsWith("ps_extra_");
+
+/** The one thing a course is waiting for. */
+export function stepOf(course: Pick<Course, "build" | "concepts" | "goals">, today: string): CourseStep {
+	if (BUILDING.has(course.build.status)) return { kind: "building" };
+	if (course.concepts.length === 0) return { kind: "material", failed: course.build.status === "failed" };
+	const goal = nextGoal(course.goals, today) ?? course.goals.at(-1);
+	if (!goal) return { kind: "goal" };
+	const d = goal.diagnostic;
+	if (d && d.status !== "done") return { kind: "diagnostic", goalId: goal.id, state: d.status };
+	const planned = (goal.plan?.sessions ?? []).filter(isScheduled);
+	if (planned.length === 0) return d ? { kind: "plan", goalId: goal.id } : { kind: "diagnostic", goalId: goal.id, state: "new" };
+	const overdue = overdueSessions(goal.plan, today).filter(isScheduled);
+	if (overdue.length > 0) return { kind: "overdue", goalId: goal.id, count: overdue.length };
+	const session = currentSession(goal.plan, today);
+	if (!session) return { kind: "done", goalId: goal.id };
+	return {
+		kind: "session", goalId: goal.id, sessionId: session.id, title: session.title, date: session.date,
+		minutes: session.minutes, concepts: session.conceptIds.length, started: !!session.chatId, sessionKind: session.kind,
+	};
+}
+
 export function summarizeCourse(course: Course, today: string): CourseSummary {
 	const index = indexCourse(course);
 	const mastery = masteryOf(course, index);
@@ -815,6 +878,10 @@ export function summarizeCourse(course: Course, today: string): CourseSummary {
 		knowledge: knowledge.value ?? 0,
 		measured: knowledge.value !== null,
 		...(goal ? { nextGoal: { id: goal.id, title: goal.title, date: goal.date, daysLeft: daysBetween(today, goal.date) } } : {}),
+		step: stepOf(course, today),
+		sessions: course.goals.flatMap((g) => (g.plan?.sessions ?? [])
+			.filter((s) => s.chatId)
+			.map((s) => ({ chatId: s.chatId!, sessionId: s.id, goalId: g.id, title: s.title, done: s.status === "done" }))),
 	};
 }
 

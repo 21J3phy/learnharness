@@ -1,23 +1,38 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { stashOpeningPrompt } from "@/components/opening-prompt";
 import { SetupDialog } from "@/components/setup-dialog";
 import { useModelSetup } from "@/components/setup-cta";
 import { cn } from "@/lib/utils";
 import type { CourseSummary } from "@/src/core";
 import { courseApi, needsModels, useCourses } from "./api";
 import { refusalFor, titleFromFile, useFileDrop } from "./dropzone";
-import { ErrorNote, LinkButton, PageFrame, PrimaryButton, Stroke, Tex, awayDays, useAction } from "./parts";
+import { ErrorNote, LinkButton, PageFrame, PrimaryButton, QuietButton, Stroke, Tex, awayDays, duration, longDay, useAction } from "./parts";
+import { byUrgency, sessionDay, stepText, todayHeadline } from "./step";
 
 /**
- * Home: the learner's courses, and the way to start one — drop a textbook
- * or a syllabus anywhere on the page.
+ * Home: what today asks for. Each course shows where the learner stands and
+ * its next step, with the session that is due one click away. Dropping a
+ * textbook or a syllabus anywhere on the page starts a course.
  */
-export function CoursesHome({ initialCourses, initialConfigured }: { initialCourses: CourseSummary[]; initialConfigured: boolean }) {
+export function CoursesHome({ initialCourses, today: initialToday, initialConfigured }: { initialCourses: CourseSummary[]; today: string; initialConfigured: boolean }) {
 	const router = useRouter();
-	const { courses } = useCourses(initialCourses);
+	const listed = useCourses(initialCourses, initialToday);
+	const today = listed.today ?? initialToday;
+	const courses = useMemo(() => byUrgency(listed.courses ?? initialCourses, today), [listed.courses, initialCourses, today]);
+	const session = useAction();
+	const openSession = (course: CourseSummary) => {
+		const step = course.step;
+		if (step.kind !== "session") return;
+		void session.run(async () => {
+			const { chatId, prompt } = await courseApi.startSession(course.id, step.goalId, step.sessionId);
+			if (prompt) stashOpeningPrompt(chatId, prompt);
+			router.push(`/chat/${chatId}`);
+		});
+	};
 	const { configured, zeroKeys } = useModelSetup(initialConfigured);
 	const [setupOpen, setSetupOpen] = useState(false);
 	const [reading, setReading] = useState<string | null>(null);
@@ -61,10 +76,12 @@ export function CoursesHome({ initialCourses, initialConfigured }: { initialCour
 						</>
 					) : (
 						<>
-							<h1 className="font-title text-[38px] leading-[1.1]">Your courses</h1>
-							<ul className="mt-8 border-t border-border">
-								{courses.map((c) => <CourseRow key={c.id} course={c} />)}
+							<p className="font-ui text-sm text-muted-foreground">{longDay(today)}</p>
+							<h1 className="mt-2 font-title text-[38px] leading-[1.1]" data-testid="today-headline">{todayHeadline(courses, today)}</h1>
+							<ul className="mt-9 border-t border-border">
+								{courses.map((c, i) => <CourseRow key={c.id} course={c} today={today} lead={i === 0} busy={session.busy} onOpenSession={() => openSession(c)} />)}
 							</ul>
+							<ErrorNote error={session.error} className="mt-3" />
 						</>
 					)}
 
@@ -101,25 +118,42 @@ export function CoursesHome({ initialCourses, initialConfigured }: { initialCour
 	);
 }
 
-function CourseRow({ course }: { course: CourseSummary }) {
-	const building = course.status === "reading" || course.status === "mapping" || course.status === "organizing";
+function CourseRow({ course, today, lead, busy, onOpenSession }: { course: CourseSummary; today: string; lead: boolean; busy: boolean; onOpenSession: () => void }) {
 	const percent = Math.round(course.knowledge * 100);
+	const step = course.step;
+	const Action = lead ? PrimaryButton : QuietButton;
 	return (
-		<li className="border-b border-border">
-			<Link href={`/course/${course.id}`} className="sy-focus -mx-3 block rounded-lg px-3 py-6 transition-colors hover:bg-accent/50">
-				<div className="flex items-baseline justify-between gap-6">
-					<h2 className="font-title text-[26px] leading-tight"><Tex>{course.title}</Tex></h2>
-					<p className="shrink-0 font-ui text-sm text-muted-foreground">
-						{course.nextGoal
-							? <>{course.nextGoal.title} {awayDays(course.nextGoal.daysLeft)}</>
-							: building ? "Building the map…" : course.status === "failed" ? "Needs attention" : ""}
-					</p>
-				</div>
-				<div className="mt-4 flex items-end gap-4">
-					<Stroke value={course.measured ? course.knowledge : 0} label={`${course.title}: ${course.measured ? `${percent}% known` : "not measured yet"}`} className="flex-1" />
-					<p className="w-12 shrink-0 text-right font-ui text-sm tabular-nums text-muted-foreground">{course.measured ? `${percent}%` : ""}</p>
-				</div>
-			</Link>
+		<li className="group relative border-b border-border py-7" data-testid="course-row">
+			<div className="flex items-baseline justify-between gap-6">
+				<h2 className="font-title text-[26px] leading-tight">
+					{/* The whole row opens the course; the session button sits above it. */}
+					<Link href={`/course/${course.id}`} className="sy-focus rounded-sm decoration-border decoration-1 underline-offset-[7px] after:absolute after:inset-0 group-hover:underline"><Tex>{course.title}</Tex></Link>
+				</h2>
+				{course.nextGoal && (
+					<p className="shrink-0 font-ui text-sm text-muted-foreground">{course.nextGoal.title} {course.nextGoal.daysLeft >= 0 ? awayDays(course.nextGoal.daysLeft) : "has passed"}</p>
+				)}
+			</div>
+			<div className="mt-4 flex items-end gap-4">
+				<Stroke value={course.measured ? course.knowledge : 0} label={`${course.title}: ${course.measured ? `${percent}% known` : "not measured yet"}`} className="flex-1" />
+				<p className="w-12 shrink-0 text-right font-ui text-sm tabular-nums text-muted-foreground">{course.measured ? `${percent}%` : ""}</p>
+			</div>
+			<div className="mt-5 flex min-h-9 items-center justify-between gap-6" data-testid="course-step">
+				{step.kind === "session" ? (
+					<>
+						<p className="min-w-0 font-ui text-[15px] leading-snug">
+							<span className="text-muted-foreground">{sessionDay(step.date, today)}</span>
+							<span className="mx-2 text-border" aria-hidden="true">/</span>
+							<Tex>{step.title}</Tex>
+							<span className="ml-2.5 whitespace-nowrap text-sm text-muted-foreground">{duration(step.minutes)}</span>
+						</p>
+						<Action onClick={onOpenSession} disabled={busy} className={lead ? "relative h-10 shrink-0 px-4 text-[15px]" : "relative shrink-0"} data-testid="home-session-start">
+							{step.started ? "Continue" : "Start"}
+						</Action>
+					</>
+				) : (
+					<p className="font-ui text-[15px] text-muted-foreground" role={step.kind === "building" ? "status" : undefined}>{stepText(step)}</p>
+				)}
+			</div>
 		</li>
 	);
 }

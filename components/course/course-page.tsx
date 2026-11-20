@@ -7,7 +7,7 @@ import { stashOpeningPrompt } from "@/components/opening-prompt";
 import { SetupDialog } from "@/components/setup-dialog";
 import { cn } from "@/lib/utils";
 import {
-	DEFAULT_PLAN_PREFS, currentSession, daysBetween, diagnosticBudget, diagnosticCandidates, goalScope, indexCourse, knowledgeOf, nextGoal, overdueSessions,
+	DEFAULT_PLAN_PREFS, currentSession, daysBetween, diagnosticBudget, diagnosticCandidates, goalScope, indexCourse, isScheduled, knowledgeOf, nextGoal, overdueSessions,
 	type CourseIndex, type Goal, type Mastery, type PlanPrefs, type PlanSession,
 } from "@/src/core";
 import { courseApi, needsModels, useCourse, type CourseView } from "./api";
@@ -17,12 +17,12 @@ import { DiagnosticRun } from "./diagnostic";
 import { refusalFor, useFileDrop } from "./dropzone";
 import { GoalForm } from "./goal-form";
 import { DayStrip } from "./plan-strip";
-import { ErrorNote, LinkButton, Meter, MoreMenu, PageFrame, PrimaryButton, QuietButton, Stroke, Tex, awayDays, dayMonth, longDay, useAction, weekdayShort, type MenuItem } from "./parts";
+import { ErrorNote, LinkButton, Meter, MoreMenu, PageFrame, PrimaryButton, Stroke, Tex, awayDays, dayMonth, duration, longDay, useAction, weekdayShort, type MenuItem } from "./parts";
 
 const BUILDING = new Set(["reading", "mapping", "organizing"]);
 
 /** Sessions the plan scheduled (not ones the learner opened off-schedule). */
-const scheduled = (goal: Goal) => (goal.plan?.sessions ?? []).filter((s) => !s.id.startsWith("ps_extra_"));
+const scheduled = (goal: Goal) => (goal.plan?.sessions ?? []).filter(isScheduled);
 
 /**
  * One course. The page answers three questions in order — how much of the
@@ -152,9 +152,16 @@ export function CoursePage({ id, initial }: { id: string; initial: CourseView })
 								{daysBetween(course.today, goal.date) >= 0 ? `is ${awayDays(daysBetween(course.today, goal.date))}` : `was ${awayDays(daysBetween(course.today, goal.date))}`}
 								<span className="text-muted-foreground">, {longDay(goal.date)}</span>
 							</p>
-							<Meter knowledge={knowledge} of={goal.title} className="mt-5" />
+							{knowledge.value !== null ? (
+								<Meter knowledge={knowledge} of={goal.title} className="mt-5" />
+							) : (
+								// Nothing to show on the meter yet: one line, so the first step leads.
+								<p className="mt-1.5 font-ui text-[15px] text-muted-foreground" data-testid="knowledge-meter" data-value="">
+									Your meter isn't set yet. Your first answers set it.
+								</p>
+							)}
 
-							<div className="mt-14" data-testid="next-step">
+							<div className={knowledge.value !== null ? "mt-14" : "mt-11"} data-testid="next-step">
 								<NextStep
 									course={course}
 									goal={goal}
@@ -192,7 +199,7 @@ export function CoursePage({ id, initial }: { id: string; initial: CourseView })
 								<span className="font-semibold">{!whole && goal ? `What ${goal.title} covers` : "The whole course"}</span>
 								{goal && <LinkButton onClick={() => setWhole((w) => !w)} className="ml-3">{whole ? `Only ${goal.title}` : "Whole course"}</LinkButton>}
 							</p>
-							<MapLegend />
+							<MapLegend next={todays.size > 0} />
 						</div>
 						<ConceptMap course={course} index={index} mastery={mastery} visible={visible} assumed={assumed} today={todays} selected={selected} onSelect={setSelected} />
 					</section>
@@ -255,7 +262,7 @@ function NextStep({
 }) {
 	const d = goal.diagnostic;
 	const budget = useMemo(() => diagnosticBudget(diagnosticCandidates(course, goal, index).length), [course, goal, index]);
-	const overdue = overdueSessions(goal.plan, course.today).filter((s) => !s.id.startsWith("ps_extra_"));
+	const overdue = overdueSessions(goal.plan, course.today).filter(isScheduled);
 
 	if (d?.status === "writing") {
 		return (
@@ -312,21 +319,30 @@ function NextStep({
 	if (!shown) return <h2 className={LEAD}>Every session in this plan is done.</h2>;
 
 	const done = shown.status === "done";
+	// A session named after its unit says what it covers underneath.
+	const covers = shown.kind === "learn" && shown.conceptIds.length > 2
+		? shown.conceptIds.flatMap((id) => index.byId.get(id)?.title ?? [])
+		: [];
 	const when = shown.date === course.today ? "Today" : `${weekdayShort(shown.date)} ${dayMonth(shown.date)}`;
 	return (
 		<div data-testid="session-card">
 			<p className="font-ui text-sm text-muted-foreground">{when}{done ? ", done" : ""}</p>
 			<h2 className={cn(LEAD, "mt-1")}>{done ? <span className="sy-hl"><Tex>{shown.title}</Tex></span> : <Tex>{shown.title}</Tex>}</h2>
+			{covers.length > 0 && (
+				<p className="mt-3 max-w-[38rem] font-ui text-[15px] leading-relaxed text-muted-foreground" data-testid="session-concepts">
+					{covers.map((title, i) => <span key={i}>{i > 0 && <span className="mx-2 text-border" aria-hidden="true">/</span>}<Tex>{title}</Tex></span>)}
+				</p>
+			)}
 			<div className="mt-5 flex flex-wrap items-center gap-5">
 				<PrimaryButton onClick={() => onOpenSession(shown)} disabled={busy} data-testid="session-start">
 					{done ? "Open" : shown.chatId ? "Continue" : "Start"}
 				</PrimaryButton>
-				{!done && <span className="font-ui text-sm text-muted-foreground">{shown.minutes} min</span>}
+				{!done && <span className="font-ui text-sm text-muted-foreground">{duration(shown.minutes)}</span>}
 				{!done && shown.chatId && <LinkButton onClick={() => onCompleteSession(shown)} disabled={busy}>Mark done</LinkButton>}
 			</div>
 			{goal.plan?.neededMinutesPerDay && (
 				<p className="mt-4 max-w-[34rem] font-ui text-sm text-muted-foreground">
-					Covering everything by {dayMonth(goal.date)} takes about {goal.plan.neededMinutesPerDay} minutes each study day.
+					Covering everything by {dayMonth(goal.date)} takes about {duration(goal.plan.neededMinutesPerDay)} each study day.
 				</p>
 			)}
 		</div>
