@@ -25,13 +25,22 @@ export const CONCEPT_KINDS: readonly ConceptKind[] = ["definition", "theorem", "
 export interface CourseSource {
 	id: string;
 	name: string;
-	kind: "pdf" | "text";
-	/** Pages with text (PDF) or 1 for plain text. */
+	/** "slides": a deck, one page per slide. "text": flowing text (a document,
+	 *  a book, notes), cut into pages. */
+	kind: "pdf" | "text" | "slides";
+	/** Pages (or slides) that have text. */
 	pages: number;
 	chars: number;
 	addedAt: string;
 	/** Shown beside the source (e.g. skipped scanned pages). */
 	notice?: string;
+}
+
+/** A file that was dropped but not read, and why (whole sentences about the
+ *  file, without its name). */
+export interface SkippedFile {
+	name: string;
+	reason: string;
 }
 
 export interface CourseUnit {
@@ -191,6 +200,8 @@ export interface Course {
 	goals: Goal[];
 	suggestions: SuggestedGoal[];
 	build: BuildState;
+	/** The last drop's files that could not be read. */
+	skipped?: SkippedFile[];
 }
 
 /** The list view's row. */

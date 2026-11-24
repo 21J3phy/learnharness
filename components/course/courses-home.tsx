@@ -8,8 +8,10 @@ import { SetupDialog } from "@/components/setup-dialog";
 import { useModelSetup } from "@/components/setup-cta";
 import { cn } from "@/lib/utils";
 import type { CourseSummary } from "@/src/core";
-import { courseApi, needsModels, useCourses } from "./api";
-import { refusalFor, titleFromFile, useFileDrop } from "./dropzone";
+import { courseApi, needsModels, sendFiles, useCourses } from "./api";
+import { COURSE_KINDS, nothingRead } from "@/lib/course-limits";
+import { useFileDrop, type Dropped } from "./dropzone";
+import { sortFiles, titleFromFile } from "./files";
 import { ErrorNote, LinkButton, PageFrame, PrimaryButton, QuietButton, Stroke, Tex, awayDays, duration, longDay, useAction } from "./parts";
 import { byUrgency, sessionDay, stepText, todayHeadline } from "./step";
 
@@ -39,17 +41,18 @@ export function CoursesHome({ initialCourses, today: initialToday, initialConfig
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const action = useAction();
 
-	const start = (files: File[]) => {
+	const start = ({ files, folder }: Dropped) => {
 		setRefusal(null);
-		const problem = refusalFor(files);
-		if (problem) { setRefusal(problem); return; }
+		const sorted = sortFiles(files);
+		if (sorted.take.length === 0) { setRefusal(nothingRead(sorted.skipped)); return; }
 		// Reading a book takes model calls: get the models chosen first.
-		if (!configured || zeroKeys) { setSetupOpen(true); setRefusal("Choose your models first, then drop the file again."); return; }
+		if (!configured || zeroKeys) { setSetupOpen(true); setRefusal("Choose your models first, then drop your files again."); return; }
 		void action.run(async () => {
-			setReading(files.length === 1 ? files[0]!.name : `${files.length} files`);
-			const created = await courseApi.create(titleFromFile(files[0]!.name));
+			setReading(sorted.take.length === 1 ? sorted.take[0]!.name : `${sorted.take.length} files`);
+			// A dropped folder names the course; the map's own title replaces it once built.
+			const created = await courseApi.create(folder?.trim().slice(0, 120) || titleFromFile(sorted.take[0]!.name));
 			try {
-				await courseApi.addSources(created.id, files);
+				await sendFiles(created.id, sorted);
 			} catch (error) {
 				// Don't leave an empty course behind a refused upload.
 				await courseApi.remove(created.id).catch(() => undefined);
@@ -69,9 +72,9 @@ export function CoursesHome({ initialCourses, today: initialToday, initialConfig
 				<main className={cn("mx-auto w-full max-w-[68rem] px-10 [&>*]:max-w-[42rem]", empty ? "flex min-h-dvh flex-col justify-center pb-24" : "pb-24 pt-24")}>
 					{empty ? (
 						<>
-							<h1 className="font-title text-[52px] leading-[1.05] tracking-[-0.01em]">Drop in your textbook.</h1>
+							<h1 className="font-title text-[52px] leading-[1.05] tracking-[-0.01em]">Drop in your course.</h1>
 							<p className="mt-5 max-w-[34rem] font-ui text-lg leading-relaxed text-muted-foreground">
-								A syllabus or lecture notes work too. You get a map of everything the course expects you to know, a short diagnostic that finds what you already do, and a day-by-day plan up to your exam.
+								A textbook, lecture slides, a syllabus, your notes: one file or a whole folder. You get a map of everything the course expects you to know, a short diagnostic that finds what you already do, and a day-by-day plan up to your exam.
 							</p>
 						</>
 					) : (
@@ -88,15 +91,15 @@ export function CoursesHome({ initialCourses, today: initialToday, initialConfig
 					<div className={cn("flex flex-wrap items-center gap-x-4 gap-y-2", empty ? "mt-9" : "mt-8")}>
 						{reading ? (
 							<p className="font-ui text-base" role="status">
-								Reading <span className="sy-hl">{reading}</span>… a long book takes a minute.
+								Reading <span className="sy-hl">{reading}</span>… a long book or a full folder takes a minute.
 							</p>
 						) : (
 							<>
 								{empty
-									? <PrimaryButton onClick={choose}>Choose a file</PrimaryButton>
+									? <PrimaryButton onClick={choose}>Choose files</PrimaryButton>
 									: <LinkButton onClick={choose} className="text-base">Start another course</LinkButton>}
 								<span className="font-ui text-sm text-muted-foreground">
-									{empty ? "or drop it anywhere on this page. PDF, Markdown or text." : "or drop a textbook or syllabus anywhere on this page."}
+									{empty ? `or drop them anywhere on this page. ${COURSE_KINDS}.` : "or drop a textbook, slides or a syllabus anywhere on this page."}
 								</span>
 							</>
 						)}
@@ -109,7 +112,7 @@ export function CoursesHome({ initialCourses, today: initialToday, initialConfig
 
 			{over && (
 				<div className="pointer-events-none absolute inset-3 z-40 flex items-center justify-center rounded-2xl border-2 border-dashed border-[color:var(--sy-hl)] bg-background/90">
-					<p className="font-title text-3xl"><span className="sy-hl">Drop it to start a course</span></p>
+					<p className="font-title text-3xl"><span className="sy-hl">Drop to start a course</span></p>
 				</div>
 			)}
 

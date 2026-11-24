@@ -1,23 +1,58 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { COURSE_ACCEPT, COURSE_EXTENSIONS, MAX_COURSE_FILE_BYTES } from "@/lib/course-limits";
+import { COURSE_ACCEPT, MAX_COURSE_FILES, byFileName } from "@/lib/course-limits";
 
-/** Why a set of files can't be taken, in the learner's terms — or null. */
-export function refusalFor(files: readonly File[]): string | null {
-	if (files.length === 0) return "Nothing was dropped.";
-	const wrong = files.find((f) => !COURSE_EXTENSIONS.test(f.name));
-	if (wrong) return `“${wrong.name}” isn't a file this can read. Use a PDF, Markdown or text file.`;
-	if (files.reduce((sum, f) => sum + f.size, 0) > MAX_COURSE_FILE_BYTES) return "That's more than 150 MB. Try the textbook on its own.";
-	return null;
+/** Folders that are really one document (a Keynote deck saved as a package). */
+const PACKAGE = /\.(?:key|pages|numbers|rtfd|app|bundle|photoslibrary)$/i;
+/** Dotfiles and Office's lock files. */
+const HIDDEN = /^(?:\.|~\$)/;
+
+/** What a drop holds. `folder` names the one folder that was dropped. */
+export interface Dropped {
+	files: File[];
+	folder?: string;
 }
 
 /**
- * File drop for a region of the page. The handlers stop the event before
- * the app-wide path drop zone (which turns files into chat attachments)
- * sees it — inside a course surface a dropped file is course material.
+ * Every file in a drop, folders opened all the way down. A file in a
+ * subfolder carries the subfolder in its name ("Week 2 - Slides.pptx"), so
+ * a course of weekly folders stays in order and its files stay apart.
  */
-export function useFileDrop(onFiles: (files: File[]) => void, enabled = true) {
+async function gather(entries: readonly FileSystemEntry[]): Promise<Dropped> {
+	const files: File[] = [];
+	const walk = async (entry: FileSystemEntry, prefix: string | null) => {
+		if (files.length >= MAX_COURSE_FILES * 2 || HIDDEN.test(entry.name)) return;
+		try {
+			if (entry.isFile) {
+				const file = await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject));
+				files.push(prefix ? new File([file], `${prefix} - ${file.name}`, { type: file.type, lastModified: file.lastModified }) : file);
+			} else if (PACKAGE.test(entry.name)) {
+				files.push(new File([], prefix ? `${prefix} - ${entry.name}` : entry.name));
+			} else {
+				const reader = (entry as FileSystemDirectoryEntry).createReader();
+				const inside = prefix === null ? "" : prefix ? `${prefix} - ${entry.name}` : entry.name;
+				for (;;) {
+					// A folder is read in pages; an empty page ends it.
+					const page = await new Promise<FileSystemEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
+					if (page.length === 0) break;
+					for (const kid of page.sort(byFileName)) await walk(kid, inside);
+				}
+			}
+		} catch { /* an unreadable entry is left out */ }
+	};
+	for (const entry of entries) await walk(entry, entry.isDirectory ? null : "");
+	const only = entries.length === 1 && entries[0]!.isDirectory && !PACKAGE.test(entries[0]!.name) ? entries[0]!.name : undefined;
+	return { files, ...(only ? { folder: only } : {}) };
+}
+
+/**
+ * File drop for a region of the page: files, several at once, or whole
+ * folders. The handlers stop the event before the app-wide path drop zone
+ * (which turns files into chat attachments) sees it — inside a course
+ * surface a dropped file is course material.
+ */
+export function useFileDrop(onFiles: (dropped: Dropped) => void, enabled = true) {
 	const depth = useRef(0);
 	const [over, setOver] = useState(false);
 	const input = useRef<HTMLInputElement>(null);
@@ -48,7 +83,12 @@ export function useFileDrop(onFiles: (files: File[]) => void, enabled = true) {
 			e.stopPropagation();
 			depth.current = 0;
 			setOver(false);
-			onFiles(Array.from(e.dataTransfer.files));
+			// Entries must be taken now: the drop's items are gone after this turn.
+			const entries = Array.from(e.dataTransfer.items ?? [])
+				.map((item) => (item.kind === "file" ? item.webkitGetAsEntry?.() ?? null : null))
+				.filter((entry): entry is FileSystemEntry => entry !== null);
+			if (entries.some((entry) => entry.isDirectory)) void gather(entries).then(onFiles);
+			else onFiles({ files: Array.from(e.dataTransfer.files) });
 		},
 	};
 	const choose = useCallback(() => input.current?.click(), []);
@@ -62,14 +102,9 @@ export function useFileDrop(onFiles: (files: File[]) => void, enabled = true) {
 			onChange={(e) => {
 				const files = Array.from(e.target.files ?? []);
 				e.target.value = "";
-				if (files.length > 0) onFiles(files);
+				if (files.length > 0) onFiles({ files });
 			}}
 		/>
 	);
 	return { over, zone, choose, picker };
-}
-
-/** The course name a first file suggests: its name without the extension. */
-export function titleFromFile(name: string): string {
-	return name.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) || "New course";
 }

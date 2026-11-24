@@ -38,6 +38,7 @@ export function ConceptDetail({
 	const m = mastery.get(conceptId);
 	const unit = course.units.find((u) => u.id === concept.unitId);
 	const sourceName = new Map(course.sources.map((s) => [s.id, s.name]));
+	const decks = new Set(course.sources.filter((s) => s.kind === "slides").map((s) => s.id));
 	const evidence = course.evidence.filter((e) => e.conceptId === conceptId).sort((a, b) => b.at.localeCompare(a.at));
 	const link = (id: string) => {
 		const c = index.byId.get(id);
@@ -101,7 +102,7 @@ export function ConceptDetail({
 						<ul className="mt-1.5 space-y-1 font-ui text-[15px]">
 							{concept.refs.map((r) => (
 								<li key={`${r.sourceId}:${r.from}`}>
-									{r.from === r.to ? `Page ${r.from}` : `Pages ${r.from}–${r.to}`}
+									{`${decks.has(r.sourceId) ? "Slide" : "Page"}${r.from === r.to ? ` ${r.from}` : `s ${r.from}–${r.to}`}`}
 									<span className="text-muted-foreground">, {sourceName.get(r.sourceId) ?? "material"}</span>
 								</li>
 							))}

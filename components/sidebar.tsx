@@ -852,7 +852,7 @@ function SessionsSidebar() {
 						<>
 							{groups.list.length === 0 && (
 								<p className="px-3 py-2 text-[13px] leading-relaxed text-muted-foreground">
-									No courses yet. <Link href="/" className="underline decoration-border underline-offset-4 hover:text-foreground">Drop in a textbook</Link> to start one.
+									No courses yet. <Link href="/" className="underline decoration-border underline-offset-4 hover:text-foreground">Drop in your material</Link> to start one.
 								</p>
 							)}
 							<nav aria-label="Courses">

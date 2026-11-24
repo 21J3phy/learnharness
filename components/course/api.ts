@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useServerEvent, useServerResync } from "@/components/server-events";
+import { nothingRead, type SkippedFile } from "@/lib/course-limits";
 import type { Course, CourseSummary, Mastery } from "@/src/core";
+import { batchesOf, type SortedFiles } from "./files";
 
 /** The course as GET /api/courses/:id returns it. */
 export interface CourseView extends Course {
@@ -47,9 +49,14 @@ export const courseApi = {
 	rename: (id: string, title: string) => send<CourseView>(`/api/courses/${id}`, json("PATCH", { title })),
 	rebuild: (id: string) => send<CourseView>(`/api/courses/${id}`, json("PATCH", { rebuild: true })),
 	remove: (id: string) => send<{ ok: true }>(`/api/courses/${id}`, { method: "DELETE" }),
-	addSources: (id: string, files: readonly File[]) => {
+	/** One upload. `hold` stores the files without building (more follow);
+	 *  `batch` is the upload's position in its drop. */
+	addSources: (id: string, files: readonly File[], options: { hold?: boolean; batch?: number; skipped?: readonly SkippedFile[] } = {}) => {
 		const form = new FormData();
 		for (const file of files) form.append("files", file);
+		if (options.hold) form.append("hold", "1");
+		form.append("batch", String(options.batch ?? 0));
+		if (options.skipped?.length) form.append("skipped", JSON.stringify(options.skipped));
 		return send<CourseView>(`/api/courses/${id}/sources`, { method: "POST", body: form });
 	},
 	createGoal: (id: string, goal: { title: string; kind: string; date: string; unitIds: string[]; note?: string }) =>
@@ -74,6 +81,24 @@ export const courseApi = {
 	studyConcept: (id: string, goalId: string, conceptId: string) =>
 		send<{ chatId: string; prompt?: string }>(`/api/courses/${id}/goals/${goalId}/sessions/new`, json("POST", { action: "start", conceptIds: [conceptId] })),
 };
+
+/**
+ * Send a whole drop. One upload when it fits; otherwise the files go up in
+ * turn and the map is built once the last is in. Files that could not be
+ * read come back on the course (`skipped`); the drop only fails when none
+ * could.
+ */
+export async function sendFiles(id: string, sorted: SortedFiles): Promise<CourseView> {
+	const batches = batchesOf(sorted.take);
+	if (batches.length <= 1) return courseApi.addSources(id, sorted.take, { skipped: sorted.skipped });
+	let course!: CourseView;
+	for (const [i, batch] of batches.entries()) {
+		course = await courseApi.addSources(id, batch, { hold: true, batch: i, skipped: i === 0 ? sorted.skipped : [] });
+	}
+	const unread = course.skipped ?? [];
+	if (unread.length - sorted.skipped.length >= sorted.take.length) throw new CourseApiError(nothingRead(unread));
+	return courseApi.rebuild(id);
+}
 
 /** One course, kept current: refetched on its change events and on reconnect. */
 export function useCourse(id: string, initial: CourseView | null) {

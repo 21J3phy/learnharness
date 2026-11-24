@@ -14,7 +14,6 @@
 
 import type { Usage } from "@earendil-works/pi-ai";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
-import { convertPdf } from "../agent/subagents/pdf-ops.ts";
 import {
 	organizeCourse,
 	readPart,
@@ -57,6 +56,7 @@ import {
 	type Mastery,
 	type PlanPrefs,
 	type PlanSession,
+	type SkippedFile,
 	type SuggestedGoal,
 } from "../core/course.ts";
 import { PROBE_DONE_ACK_TEXT, buildProbeHandoffSteer } from "../core/contracts.ts";
@@ -64,6 +64,8 @@ import { newMessageId, type LhMarkerMessage, type LhMessage } from "../core/nati
 import { ModelsNotConfiguredError, ProviderKeyMissingError, PROVIDER_KEY_MISSING_CODE, type ModelSlotName } from "../core/settings.ts";
 import { resolveSlot } from "../core/settings-resolution.ts";
 import { courseStore, type SourcePage } from "../store/courses.ts";
+import { MAX_COURSE_FILES, byFileName, nothingRead } from "../../lib/course-limits.ts";
+import { SourceFileError, convertSource } from "./course-files.ts";
 import { deliverJobResult } from "./jobs.ts";
 import { providerKeyPresent } from "./keys.ts";
 import { stores } from "./stores.ts";
@@ -71,23 +73,21 @@ import { stores } from "./stores.ts";
 // ─── limits ──────────────────────────────────────────────────────────────────
 
 export { MAX_COURSE_FILE_BYTES } from "../../lib/course-limits.ts";
-const MAX_PDF_PAGES = 2000;
 /** About 12k tokens of material per model call. */
 const PART_CHARS = 48_000;
 const MAX_PARTS = 60;
 /** A whole course stays readable as one map at about this many concepts. */
 const TARGET_CONCEPTS = 240;
-/** A source this short is treated as an outline (a syllabus) and shown to
- *  the organizer verbatim. */
+/** A source this short may be an outline (a syllabus): the organizer is
+ *  shown such sources verbatim, up to OUTLINE_BUDGET in all. */
 const OUTLINE_CHARS = 24_000;
+const OUTLINE_BUDGET = 2 * OUTLINE_CHARS;
+const OUTLINE_NAME = /syllabus|outline|schedule|calendar|overview|course[ _-]?info/i;
 const READ_CONCURRENCY = 3;
 const QUESTION_BATCH = 5;
 const MAX_DIAGNOSTIC_CONCEPTS = 48;
 /** Material quoted into a teaching session's opening context. */
 const SESSION_EXCERPT_CHARS = 14_000;
-
-const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d]; // "%PDF-"
-const SOURCE_EXTENSIONS = /\.(?:pdf|txt|md|markdown|rst|org|adoc|tex)$/i;
 
 export class CourseError extends Error {
 	constructor(message: string, readonly status: number = 400, readonly code?: string) {
@@ -227,43 +227,21 @@ export function deleteCourse(id: string): boolean {
 
 // ─── material ────────────────────────────────────────────────────────────────
 
-/** Split plain text into pages of about a part's size, on paragraph breaks. */
-function paginate(text: string): SourcePage[] {
-	const pages: SourcePage[] = [];
-	let current = "";
-	for (const paragraph of text.split(/\n{2,}/)) {
-		if (current.length + paragraph.length > PART_CHARS / 4 && current) {
-			pages.push({ number: pages.length + 1, text: current });
-			current = "";
-		}
-		current += (current ? "\n\n" : "") + paragraph;
-	}
-	if (current.trim()) pages.push({ number: pages.length + 1, text: current });
-	return pages;
-}
-
-async function convert(name: string, bytes: Uint8Array): Promise<{ kind: "pdf" | "text"; pages: SourcePage[]; notice?: string }> {
-	if (!SOURCE_EXTENSIONS.test(name)) throw new CourseError(`"${name}" isn't a supported file. Use a PDF, Markdown or text file.`);
-	if (!PDF_MAGIC.every((byte, i) => bytes[i] === byte)) {
-		if (bytes.subarray(0, 8192).includes(0)) throw new CourseError(`"${name}" isn't a text file.`);
-		const pages = paginate(new TextDecoder().decode(bytes));
-		if (pages.length === 0) throw new CourseError(`"${name}" is empty.`);
-		return { kind: "text", pages };
-	}
-	const pdf = await convertPdf(bytes, MAX_PDF_PAGES);
-	if (pdf.kind === "unreadable") throw new CourseError(`"${name}" could not be opened as a PDF.`);
-	if (pdf.kind === "too-long") throw new CourseError(`"${name}" is too long. The limit is ${MAX_PDF_PAGES.toLocaleString("en-US")} pages.`);
-	const pages = pdf.pages.flatMap((p) => (p.kind === "text" ? [{ number: p.number, text: p.markdown }] : []));
-	if (pages.length === 0) {
-		throw new CourseError(`"${name}" has no selectable text — it looks like a scan. Scanned pages can't be read yet; use a PDF whose text you can highlight.`);
-	}
-	const skipped = pdf.pages.filter((p) => p.kind === "image-only").length;
-	return { kind: "pdf", pages, ...(skipped > 0 ? { notice: `${skipped} scanned ${skipped === 1 ? "page was" : "pages were"} skipped.` } : {}) };
+export interface AddSourcesOptions {
+	/** Store the files without building. A large drop arrives as several
+	 *  uploads; the caller starts the build (rebuildCourse) after the last. */
+	hold?: boolean;
+	/** False for a later upload of the same drop: its unread files add up. */
+	first?: boolean;
+	/** Files the browser already turned away, to show beside the material. */
+	skipped?: readonly SkippedFile[];
 }
 
 /** Take the dropped files, store their text, and start (re)building the
- *  map. Returns as soon as the files are stored; the build runs on. */
-export async function addSources(courseId: string, files: readonly { name: string; bytes: Uint8Array }[]): Promise<CourseView> {
+ *  map. A file that can't be read is set aside, not fatal, as long as
+ *  another one can. Returns as soon as the files are stored; the build
+ *  runs on. */
+export async function addSources(courseId: string, files: readonly { name: string; bytes: Uint8Array }[], options: AddSourcesOptions = {}): Promise<CourseView> {
 	mustGet(courseId);
 	if (runs().builds.has(courseId)) throw new CourseError("The map is still being built. Add more files when it finishes.", 409, "busy");
 	// Refuse before any work when the models are not set up.
@@ -271,8 +249,18 @@ export async function addSources(courseId: string, files: readonly { name: strin
 		const failure = failureOf(error);
 		throw new CourseError(failure.error, 503, failure.code);
 	}
-	const converted: ({ file: { name: string } } & Awaited<ReturnType<typeof convert>>)[] = [];
-	for (const file of files) converted.push({ file, ...(await convert(file.name, file.bytes)) });
+	const converted: ({ file: { name: string } } & Awaited<ReturnType<typeof convertSource>>)[] = [];
+	const skipped: SkippedFile[] = [...(options.skipped ?? [])];
+	// Lecture 2 before Lecture 10: the order here is the order the map is read in.
+	for (const file of [...files].sort(byFileName)) {
+		try {
+			converted.push({ file, ...(await convertSource(file.name, file.bytes)) });
+		} catch (error) {
+			if (!(error instanceof SourceFileError)) throw error;
+			skipped.push({ name: file.name, reason: error.reason });
+		}
+	}
+	if (converted.length === 0 && !options.hold) throw new CourseError(nothingRead(skipped));
 	const course = courseStore.update(courseId, (c) => {
 		for (const item of converted) {
 			const id = `src_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`;
@@ -287,9 +275,12 @@ export async function addSources(courseId: string, files: readonly { name: strin
 				...(item.notice ? { notice: item.notice } : {}),
 			});
 		}
+		const unread = [...(options.first === false ? c.skipped ?? [] : []), ...skipped].slice(0, MAX_COURSE_FILES);
+		if (unread.length > 0) c.skipped = unread;
+		else delete c.skipped;
 	});
 	if (!course) throw new CourseError("That course no longer exists.", 404, "not_found");
-	startBuild(courseId);
+	if (!options.hold) startBuild(courseId);
 	return viewOf(courseStore.get(courseId) ?? course);
 }
 
@@ -360,7 +351,7 @@ async function build(courseId: string, signal: AbortSignal): Promise<void> {
 	const titleHints: string[] = [];
 	await pool(parts, READ_CONCURRENCY, async (part, i) => {
 		const findings = await readPart({
-			engine: reader, partText: part.text, sourceName: part.source.name,
+			engine: reader, partText: part.text, sourceName: part.source.name, slides: part.source.kind === "slides",
 			part: i + 1, parts: parts.length, maxConcepts: perPart, today: today(), signal, onUsage: usage,
 		});
 		signal.throwIfAborted();
@@ -376,11 +367,18 @@ async function build(courseId: string, signal: AbortSignal): Promise<void> {
 
 	// 2. Organize: units, merged duplicates, prerequisite links.
 	courseStore.update(courseId, (c) => { c.build = { ...c.build, status: "organizing" }; });
-	const where = (c: Found) => `${c.pageFrom ? `p. ${c.pageFrom}${c.pageTo && c.pageTo !== c.pageFrom ? `–${c.pageTo}` : ""} of ` : ""}"${c.source.name}"`;
+	const where = (c: Found) => `${c.pageFrom ? `${c.source.kind === "slides" ? "slide" : "p."} ${c.pageFrom}${c.pageTo && c.pageTo !== c.pageFrom ? `–${c.pageTo}` : ""} of ` : ""}"${c.source.name}"`;
 	const inputs: OrganizeInput[] = all.map((c, i) => ({ n: i + 1, title: c.title, summary: c.summary, kind: c.kind, where: where(c), requires: c.requires }));
-	const outlines = course.sources
-		.filter((s) => s.chars <= OUTLINE_CHARS)
-		.map((s) => ({ name: s.name, text: courseStore.readSource(courseId, s.id).map((p) => p.text).join("\n\n") }));
+	// A folder of short lecture files must not all be quoted: files named
+	// like a syllabus go first, then the shortest, while the budget lasts.
+	const outlines: { name: string; text: string }[] = [];
+	let room = OUTLINE_BUDGET;
+	const short = course.sources.filter((s) => s.kind !== "slides" && s.chars <= OUTLINE_CHARS);
+	for (const s of short.sort((a, b) => Number(OUTLINE_NAME.test(b.name)) - Number(OUTLINE_NAME.test(a.name)) || a.chars - b.chars)) {
+		if (s.chars > room) continue;
+		room -= s.chars;
+		outlines.push({ name: s.name, text: courseStore.readSource(courseId, s.id).map((p) => p.text).join("\n\n") });
+	}
 	const shape = await organizeCourse({
 		engine: organizer, concepts: inputs, assessments, titleHints,
 		sourceNames: course.sources.map((s) => s.name), outlines, today: today(), signal, onUsage: usage,
