@@ -16,7 +16,7 @@
   <a href="https://discord.gg/5tCHHQEB2e">Discord</a>
 </p>
 
-> **This is a fork: Syllabus.** It adds a course layer on top of LearnHarness. Drop in a textbook or syllabus and it builds a map of the course's concepts and how they depend on each other. Set a goal (a midterm, a date), take a short adaptive diagnostic, and get a day-by-day plan. A knowledge meter, set by the diagnostic and moved by every later answer, shows how much of the goal you hold. Teaching still happens in one LearnHarness chat, opened already knowing where you stand. See [Courses](docs/courses.md). Everything below is upstream's description of LearnHarness itself.
+> **This is a fork: Syllabus.** It adds a course layer on top of LearnHarness. Drop in a textbook, lecture slides or a syllabus (PDF, PowerPoint, Word, EPUB or text; a whole folder at once) and it builds a map of the course's concepts and how they depend on each other. Set a goal (a midterm, a date), take a short adaptive diagnostic, and get a day-by-day plan. A knowledge meter, set by the diagnostic and moved by every later answer, shows how much of the goal you hold. Teaching still happens in one LearnHarness chat, opened already knowing where you stand. See [Courses](docs/courses.md). Everything below is upstream's description of LearnHarness itself.
 
 LearnHarness uses AI agents to plan and teach lessons from your current understanding to your goal. It builds a detailed picture of what you understand and how you reason. That picture is updated as you learn.
 

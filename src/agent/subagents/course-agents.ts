@@ -83,6 +83,7 @@ Rules:
 - Name each concept the way the material names it, and keep the material's notation in the summary.
 - Summaries state the content itself ("A set of vectors is linearly independent when the only linear combination giving the zero vector has all coefficients zero."), never what the text does ("This section introduces…").
 - Give the page range from the "--- Page N ---" markers when they are present.
+- If the part is a slide deck (each page is one slide): slides are terse, so write every summary as full sentences, completing the slides' fragments from what you know of the subject and keeping their notation. A concept usually runs over several slides; its page range is that run of slides.
 - "requires" lists only DIRECT dependencies, by title. Do not list things that are merely earlier.
 - Skip anything that teaches nothing: covers, prefaces, tables of contents, indexes, bibliographies, bare exercise lists. An empty list is the right answer for such a part.
 - If the part is a syllabus, course outline or schedule rather than teaching text: each topic it lists is a concept (summarize from what you know of the subject, at the level the course implies), and every exam, test or quiz it announces is an assessment.
@@ -93,6 +94,8 @@ export async function readPart(opts: {
 	engine: PiEngine;
 	partText: string;
 	sourceName: string;
+	/** The part comes from a slide deck (one page per slide). */
+	slides?: boolean;
 	part: number;
 	parts: number;
 	maxConcepts: number;
@@ -131,7 +134,7 @@ export async function readPart(opts: {
 		}),
 		systemPrompt: READ_PART_SYSTEM,
 		prompt: [
-			`Material: "${opts.sourceName}" — part ${opts.part} of ${opts.parts}.`,
+			`Material: "${opts.sourceName}" — part ${opts.part} of ${opts.parts}.${opts.slides ? " It is a slide deck: each page is one slide." : ""}`,
 			`Today is ${opts.today} (use it only to resolve dates that omit the year).`,
 			`List at most ${opts.maxConcepts} concepts — the ones that matter most if there are more.`,
 			"",
@@ -207,7 +210,7 @@ You receive every concept found, numbered, with where it was found and what its 
 
 Do four things:
 1. Merge duplicates. The same concept is often found in more than one part (a syllabus topic and its textbook section, or a concept spanning a part boundary). Keep the entry with the better summary and page reference.
-2. Group the kept concepts into units, in teaching order. Follow the material's own structure: a textbook's chapters, a syllabus's weeks or topics. When a syllabus and a textbook are both present, the syllabus decides which units exist and their order. Order the concepts inside each unit the way they should be learned. Leave out entries that are not really concepts to learn.
+2. Group the kept concepts into units, in teaching order. Follow the material's own structure: a textbook's chapters, a syllabus's weeks or topics, a series of lecture files in the order the sources are listed. When a syllabus and a textbook are both present, the syllabus decides which units exist and their order. Order the concepts inside each unit the way they should be learned. Leave out entries that are not really concepts to learn.
 3. Link prerequisites. For each concept, the concepts it DIRECTLY builds on — what a student must already hold for this one to make sense. Keep it sparse and honest: usually one to three links, none for starting points. Never link a concept to something merely earlier, and do not add a link that another link already implies. A prerequisite must come earlier in the course order than the concept that needs it.
 4. Map each listed assessment onto the units it covers. If the material does not say what an assessment covers, list no units for it.
 
@@ -230,7 +233,7 @@ export async function organizeCourse(opts: {
 		`#${c.n} | ${c.title} (${c.kind}) | ${c.where} | requires: ${c.requires.join("; ") || "—"} | ${c.summary}`,
 	);
 	const prompt = [
-		`Sources: ${opts.sourceNames.map((n) => `"${n}"`).join(", ")}.`,
+		`Sources, in order: ${opts.sourceNames.map((n) => `"${n}"`).join(", ")}.`,
 		opts.titleHints.length > 0 ? `Titles seen in the material: ${[...new Set(opts.titleHints)].slice(0, 5).map((t) => `"${t}"`).join(", ")}.` : "",
 		`Today is ${opts.today}.`,
 		"",

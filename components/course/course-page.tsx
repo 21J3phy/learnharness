@@ -10,11 +10,14 @@ import {
 	DEFAULT_PLAN_PREFS, currentSession, daysBetween, diagnosticBudget, diagnosticCandidates, goalScope, indexCourse, isScheduled, knowledgeOf, nextGoal, overdueSessions,
 	type CourseIndex, type Goal, type Mastery, type PlanPrefs, type PlanSession,
 } from "@/src/core";
-import { courseApi, needsModels, useCourse, type CourseView } from "./api";
+import { ChevronDownIcon } from "lucide-react";
+import { nothingRead } from "@/lib/course-limits";
+import { courseApi, needsModels, sendFiles, useCourse, type CourseView } from "./api";
 import { ConceptDetail } from "./concept-detail";
 import { ConceptMap, MapLegend } from "./concept-map";
 import { DiagnosticRun } from "./diagnostic";
-import { refusalFor, useFileDrop } from "./dropzone";
+import { useFileDrop, type Dropped } from "./dropzone";
+import { sortFiles, sourceSize } from "./files";
 import { GoalForm } from "./goal-form";
 import { DayStrip } from "./plan-strip";
 import { ErrorNote, LinkButton, Meter, MoreMenu, PageFrame, PrimaryButton, Stroke, Tex, awayDays, dayMonth, duration, longDay, useAction, weekdayShort, type MenuItem } from "./parts";
@@ -69,11 +72,11 @@ export function CoursePage({ id, initial }: { id: string; initial: CourseView })
 		try { return await work(); } catch (error) { if (needsModels(error)) setSetupOpen(true); throw error; }
 	});
 
-	const addFiles = (files: File[]) => {
+	const addFiles = ({ files }: Dropped) => {
 		setRefusal(null);
-		const problem = refusalFor(files);
-		if (problem) { setRefusal(problem); return; }
-		void guarded(async () => adopt(await courseApi.addSources(course.id, files)));
+		const sorted = sortFiles(files);
+		if (sorted.take.length === 0) { setRefusal(nothingRead(sorted.skipped)); return; }
+		void guarded(async () => adopt(await sendFiles(course.id, sorted)));
 	};
 	const { over, zone, choose, picker } = useFileDrop(addFiles, !building && !act.busy);
 
@@ -100,9 +103,7 @@ export function CoursePage({ id, initial }: { id: string; initial: CourseView })
 				<main className="mx-auto w-full max-w-[68rem] px-10 pt-24 [&>*]:max-w-[42rem]">
 					<p><Link href="/" className="sy-focus rounded-sm font-ui text-sm text-muted-foreground transition-colors hover:text-foreground">Courses</Link></p>
 					<h1 className="mt-2 font-title text-[38px] leading-[1.1]" data-testid="course-title"><Tex>{course.title}</Tex></h1>
-					{course.sources.some((s) => s.notice) && (
-						<p className="mt-2 font-ui text-sm text-muted-foreground">{course.sources.filter((s) => s.notice).map((s) => `${s.name}: ${s.notice}`).join(" ")}</p>
-					)}
+					<Material course={course} />
 					{refusal && <p role="alert" className="mt-3 font-ui text-sm text-error">{refusal}</p>}
 					{picker}
 
@@ -112,12 +113,12 @@ export function CoursePage({ id, initial }: { id: string; initial: CourseView })
 						<div className="mt-14">
 							<h2 className="font-title text-[28px] leading-tight">{course.build.status === "failed" ? "The map couldn't be built." : "Add your material."}</h2>
 							<p className="mt-3 font-ui text-lg leading-relaxed text-muted-foreground">
-								{course.build.error ?? "Drop a textbook, a syllabus or your lecture notes anywhere on this page."}
+								{course.build.error ?? "Drop a textbook, slides, a syllabus or your notes anywhere on this page. A whole folder works too."}
 							</p>
 							<div className="mt-6 flex items-center gap-4">
 								{course.sources.length > 0
 									? <PrimaryButton disabled={act.busy} onClick={() => void guarded(async () => adopt(await courseApi.rebuild(course.id)))}>Try again</PrimaryButton>
-									: <PrimaryButton onClick={choose} disabled={act.busy}>{act.busy ? "Reading…" : "Choose a file"}</PrimaryButton>}
+									: <PrimaryButton onClick={choose} disabled={act.busy}>{act.busy ? "Reading…" : "Choose files"}</PrimaryButton>}
 								{course.build.code && <LinkButton onClick={() => setSetupOpen(true)}>Choose your models</LinkButton>}
 							</div>
 						</div>
@@ -226,7 +227,7 @@ export function CoursePage({ id, initial }: { id: string; initial: CourseView })
 
 			{over && !building && (
 				<div className="pointer-events-none absolute inset-3 z-50 flex items-center justify-center rounded-2xl border-2 border-dashed border-[color:var(--sy-hl)] bg-background/90">
-					<p className="font-title text-3xl"><span className="sy-hl">Drop it to add it to this course</span></p>
+					<p className="font-title text-3xl"><span className="sy-hl">Drop to add to this course</span></p>
 				</div>
 			)}
 
@@ -407,6 +408,51 @@ const PHASE: Record<string, string> = {
 
 /** The map being built: how far along, and the concepts found so far
  *  arriving one by one. */
+/**
+ * What the course was built from. One file needs no list; several fold
+ * into a line that opens into every file, how much of each was read, and
+ * the ones that could not be read with what to do about them.
+ */
+function Material({ course }: { course: CourseView }) {
+	const [open, setOpen] = useState(false);
+	const unread = course.skipped ?? [];
+	const { sources } = course;
+	if (sources.length <= 1 && unread.length === 0) {
+		const only = sources[0];
+		return only?.notice ? <p className="mt-2 font-ui text-sm text-muted-foreground">{only.name}: {only.notice}</p> : null;
+	}
+	return (
+		<div className="mt-2 font-ui text-sm text-muted-foreground" data-testid="material">
+			<button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="sy-focus group inline-flex items-center gap-1.5 rounded-sm text-left transition-colors hover:text-foreground">
+				<span>
+					{sources.length} {sources.length === 1 ? "file" : "files"}
+					{unread.length > 0 && <span className="text-foreground"> · {unread.length} {unread.length === 1 ? "wasn't" : "weren't"} read</span>}
+				</span>
+				<ChevronDownIcon className={cn("size-3.5 transition-transform duration-150", open && "rotate-180")} aria-hidden="true" />
+			</button>
+			{open && (
+				<ul className="mt-3 max-h-[19rem] space-y-2 overflow-y-auto border-l border-border pl-4" data-testid="material-list">
+					{sources.map((s) => (
+						<li key={s.id}>
+							<p className="flex items-baseline gap-4">
+								<span className="min-w-0 flex-1 truncate text-foreground" title={s.name}>{s.name}</span>
+								<span className="shrink-0 tabular-nums">{sourceSize(s)}</span>
+							</p>
+							{s.notice && <p className="text-[13px]">{s.notice}</p>}
+						</li>
+					))}
+					{unread.map((file, i) => (
+						<li key={`${i}:${file.name}`} data-testid="material-unread">
+							<p className="truncate text-foreground" title={file.name}>{file.name} <span className="text-error">wasn't read</span></p>
+							<p className="text-[13px]">{file.reason}</p>
+						</li>
+					))}
+				</ul>
+			)}
+		</div>
+	);
+}
+
 function BuildProgress({ course }: { course: CourseView }) {
 	const { status, done, total, found } = course.build;
 	const recent = found.slice(-36);
