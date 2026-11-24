@@ -8,6 +8,7 @@ import test from "node:test";
 import {
 	addDays,
 	buildPlan,
+	calendarPrompt,
 	currentSession,
 	daysBetween,
 	diagnosticBudget,
@@ -20,6 +21,7 @@ import {
 	masteryOf,
 	nextDiagnosticConcept,
 	overdueSessions,
+	planOutline,
 	progressOf,
 	publicCourse,
 	slugify,
@@ -246,10 +248,110 @@ test("solid concepts are left out of the plan", () => {
 	assert.ok(taught.includes("basis") && taught.includes("span"), "only implied by one answer: still shaky, so they get a short revisit");
 });
 
-test("a plan that cannot fit says how much time it really needs", () => {
-	const plan = buildPlan(course(), goal(["unit-spaces", "unit-maps"], "2026-11-21"), "2026-11-19", { minutesPerDay: 20, weekdays: [0, 1, 2, 3, 4, 5, 6] });
-	assert.ok((plan.neededMinutesPerDay ?? 0) > 20);
-	assert.equal(plan.sessions.filter((s) => s.kind === "learn").flatMap((s) => s.conceptIds).length, 9, "still covers everything");
+test("a plan that cannot fit keeps to the learner's time and says what it gave up", () => {
+	const c = course();
+	const g = goal(["unit-spaces", "unit-maps"], "2026-11-21");
+	const plan = buildPlan(c, g, "2026-11-19", { minutesPerDay: 20, weekdays: [0, 1, 2, 3, 4, 5, 6] });
+	const learn = plan.sessions.filter((s) => s.kind === "learn");
+	const taught = learn.flatMap((s) => s.conceptIds);
+	assert.ok(learn.every((s) => s.minutes <= 20), "no session is longer than the day's time");
+	assert.ok((plan.neededMinutesPerDay ?? 0) > 20, "what all of it would take is still said");
+	const scope = goalScope(c, g);
+	assert.deepEqual([...taught, ...plan.left!].sort(), [...scope.core, ...scope.assumed].sort(), "every concept is either taught or named as left out");
+	// What the goal only rests on goes first; its own material is cut last.
+	for (const id of scope.assumed) assert.ok(plan.left!.includes(id), `${id} is earlier material`);
+	assert.ok(taught.length > 0 && taught.every((id) => scope.core.includes(id)));
+	assert.equal(plan.pace, 0.6, "and gets a quicker pass before any of it is dropped");
+	// Of the goal's own, the concepts the most is built on are the ones kept.
+	const index = indexCourse(c);
+	const builtOn = (id: string) => scope.core.filter((other) => index.byId.get(other)!.prereqs.includes(id)).length;
+	assert.ok(Math.min(...taught.map(builtOn)) >= Math.max(...plan.left!.filter((id) => scope.core.includes(id)).map(builtOn)) - 1);
+});
+
+test("with a little more time only the earlier material is left out, at the usual pace", () => {
+	const c = course();
+	const g = goal(["unit-spaces", "unit-maps"], "2026-11-21");
+	// Seven concepts of its own at 20 minutes: 140 minutes over two days.
+	const plan = buildPlan(c, g, "2026-11-19", { minutesPerDay: 70, weekdays: [0, 1, 2, 3, 4, 5, 6] });
+	const scope = goalScope(c, g);
+	assert.deepEqual(plan.left, scope.assumed);
+	assert.equal(plan.pace, undefined);
+	assert.deepEqual(plan.sessions.filter((s) => s.kind === "learn").flatMap((s) => s.conceptIds).sort(), [...scope.core].sort());
+});
+
+test("a day can have its own time, or be a day off", () => {
+	const g = goal(["unit-spaces"], "2026-11-24");
+	const prefs = { minutesPerDay: 40, weekdays: [0, 1, 2, 3, 4, 5, 6], days: { "2026-11-20": 0, "2026-11-21": 120, "2026-11-01": 90 } };
+	const plan = buildPlan(course(), g, "2026-11-19", prefs);
+	assert.ok(!plan.sessions.some((s) => s.date === "2026-11-20"), "nothing on the day off");
+	const long = plan.sessions.find((s) => s.date === "2026-11-21")!;
+	const short = plan.sessions.find((s) => s.date === "2026-11-19")!;
+	assert.ok(long.conceptIds.length > short.conceptIds.length, "the long day carries more");
+	assert.deepEqual(plan.prefs.days, { "2026-11-20": 0, "2026-11-21": 120 }, "a day already past is dropped from the settings");
+});
+
+test("the learner can leave concepts out, drop the earlier material, and drop the practice exam", () => {
+	const c = course();
+	const g = goal(["unit-spaces"], "2026-11-29");
+	const taught = (prefs: Parameters<typeof buildPlan>[3]) => buildPlan(c, g, "2026-11-19", prefs).sessions.filter((s) => s.kind === "learn").flatMap((s) => s.conceptIds);
+	const base = { minutesPerDay: 45, weekdays: [0, 1, 2, 3, 4, 5, 6] };
+	assert.ok(taught(base).includes("vectors"));
+	assert.ok(!taught({ ...base, skip: ["span"] }).includes("span"));
+	assert.deepEqual(taught({ ...base, prerequisites: false }).sort(), [...goalScope(c, g).core].sort());
+	const titles = (prefs: Parameters<typeof buildPlan>[3]) => buildPlan(c, g, "2026-11-19", prefs).sessions.map((s) => s.title);
+	assert.ok(titles(base).includes("Practice exam"));
+	assert.ok(!titles({ ...base, practice: false }).includes("Practice exam") && titles({ ...base, practice: false }).includes("Final review"));
+});
+
+test("rebuilding keeps the chat of a session already begun", () => {
+	const c = course();
+	const g = goal(["unit-spaces"], "2026-11-29");
+	const first = buildPlan(c, g, "2026-11-19");
+	first.sessions[0]!.chatId = "chat_1";
+	const second = buildPlan(c, { ...g, plan: first }, "2026-11-19", { minutesPerDay: 90, weekdays: [0, 1, 2, 3, 4, 5, 6] });
+	assert.equal(second.sessions.find((s) => s.date === first.sessions[0]!.date)?.chatId, "chat_1");
+	assert.equal(second.sessions.filter((s) => s.chatId).length, 1);
+});
+
+test("the plan by unit: when each is covered and how much of it is held", () => {
+	const c = course([ev("span", true), ev("basis", true, "2026-11-10T10:01:00.000Z")]);
+	const g = goal(["unit-spaces"], "2026-11-29");
+	g.plan = buildPlan(c, g, "2026-11-19");
+	const outline = planOutline(c, g);
+	const spaces = outline.find((u) => u.unitId === "unit-spaces")!;
+	assert.equal(spaces.role, "core");
+	assert.equal(spaces.concepts, 4);
+	assert.equal(spaces.solid, 2);
+	assert.ok(spaces.progress > 0.5 && spaces.progress < 1);
+	const dates = g.plan.sessions.filter((s) => s.kind === "learn" && s.conceptIds.some((id) => ["linear-independence", "dimension"].includes(id))).map((s) => s.date);
+	assert.equal(spaces.from, dates[0]);
+	assert.equal(spaces.to, dates.at(-1));
+	assert.equal(spaces.upcoming, 2, "the two that are not solid yet");
+	assert.ok(g.plan.sessions.some((s) => s.id === spaces.sessionId));
+	// Earlier material shows only while the plan spends time on it.
+	const vectors = outline.find((u) => u.unitId === "unit-vectors");
+	assert.equal(vectors?.role, "earlier");
+	assert.equal(planOutline(c, { ...g, plan: buildPlan(c, g, "2026-11-19", { minutesPerDay: 45, weekdays: [0, 1, 2, 3, 4, 5, 6], prerequisites: false }) }).some((u) => u.unitId === "unit-vectors"), false);
+	// A unit the plan had no time for says so.
+	const tight = goal(["unit-spaces", "unit-maps"], "2026-11-21");
+	tight.plan = buildPlan(course(), tight, "2026-11-19", { minutesPerDay: 20, weekdays: [0, 1, 2, 3, 4, 5, 6] });
+	const maps = planOutline(course(), tight).find((u) => u.unitId === "unit-maps")!;
+	assert.ok(maps.left > 0);
+});
+
+test("the calendar prompt lists the sessions still to do, with full dates", () => {
+	const c = course();
+	const g = goal(["unit-spaces"], "2026-11-29");
+	g.plan = buildPlan(c, g, "2026-11-19");
+	g.plan.sessions[0]!.status = "done";
+	const prompt = calendarPrompt(c, g, "2026-11-19");
+	const upcoming = g.plan.sessions.filter((s) => s.status === "upcoming");
+	const lines = prompt.split("\n").filter((line) => /^\d+\. /.test(line));
+	assert.equal(lines.length, upcoming.length, "one line per session, the finished one left out");
+	assert.match(lines[0]!, new RegExp(`^1\\. ${upcoming[0]!.date} \\((Sun|Mon|Tue|Wed|Thu|Fri|Sat)\\) \\| \\d+ (min|h)`));
+	assert.ok(lines.some((line) => line.includes("Midterm 1: Practice exam")));
+	assert.match(prompt, /The exam: 2026-11-29 \(Sun\) \| Midterm 1 \(Linear Algebra\)/);
+	assert.match(prompt, /Don't move, shorten or delete anything/);
 });
 
 test("a plan only uses the learner's study days", () => {
@@ -359,8 +461,104 @@ test("the meter and the per-concept estimates agree", () => {
 	const c = course([ev("span", true), ev("kernel", false, "2026-11-10T10:05:00.000Z")]);
 	const all = c.concepts.map((x) => x.id);
 	const mastery = masteryOf(c);
-	const mean = all.reduce((sum, id) => sum + mastery.get(id)!.p, 0) / all.length;
+	const mean = all.reduce((sum, id) => sum + mastery.get(id)!.likely, 0) / all.length;
 	assert.ok(Math.abs(knowledgeOf(c, all).value! - mean) < 1e-12);
+});
+
+test("an untested concept is read against how the diagnostic went around it", () => {
+	const at = (n: number) => `2026-11-10T10:0${n}:00.000Z`;
+	// Unit "spaces": three of its four concepts asked. "kernel" sits in another unit.
+	const aced = masteryOf(course([ev("span", true, at(0)), ev("linear-independence", true, at(1)), ev("basis", true, at(2))]));
+	const missed = masteryOf(course([ev("span", false, at(0)), ev("linear-independence", false, at(1)), ev("basis", false, at(2))]));
+	assert.ok(aced.get("linear-map")!.likely > 0.6, "someone who gets everything right probably knows the rest");
+	assert.ok(missed.get("linear-map")!.likely < 0.15, "someone who knows none of it probably does not");
+	// The evidence-only estimate, and so the state, does not move.
+	assert.equal(aced.get("linear-map")!.p, 0.3);
+	assert.equal(aced.get("linear-map")!.state, "untested");
+	assert.equal(missed.get("linear-map")!.state, "untested");
+	// The concept's own unit weighs more than the rest of the course.
+	const mixed = masteryOf(course([ev("vectors", true, at(0)), ev("linear-combination", true, at(1)), ev("linear-map", false, at(2)), ev("kernel", false, at(3))]));
+	assert.ok(mixed.get("rank-nullity")!.likely < 0.2, "its own unit went badly");
+	assert.ok(mixed.get("rank-nullity")!.likely < mixed.get("dimension")!.likely, "a unit with no answers takes the course's rate");
+});
+
+test("a concept's own answer is not counted twice, and a right answer still reads as known", () => {
+	const one = masteryOf(course([ev("basis", true)])).get("basis")!;
+	assert.equal(one.likely, one.p, "its own answer is left out of its own rate");
+	// One hit among misses: likely a real one, since "I don't know" was on offer.
+	const at = (n: number) => `2026-11-10T10:0${n}:00.000Z`;
+	const lone = masteryOf(course([ev("span", false, at(0)), ev("linear-independence", false, at(1)), ev("dimension", true, at(2))])).get("dimension")!;
+	assert.ok(lone.likely > 0.5 && lone.likely < lone.p);
+});
+
+test("teaching one concept says nothing about the ones beside it", () => {
+	const diagnostic = [ev("span", false, "2026-11-10T10:00:00.000Z"), ev("linear-independence", false, "2026-11-10T10:01:00.000Z")];
+	const before = masteryOf(course(diagnostic));
+	const taught = masteryOf(course([
+		...diagnostic,
+		ev("span", true, "2026-11-12T09:00:00.000Z", "session"),
+		ev("span", true, "2026-11-13T09:00:00.000Z", "session"),
+	]));
+	assert.ok(taught.get("span")!.likely > 0.8, "what was taught and checked twice is held");
+	assert.equal(taught.get("dimension")!.likely, before.get("dimension")!.likely, "the untaught concept beside it is not");
+});
+
+// ─── the meter against learners whose knowledge is known ─────────────────────
+
+/** A course of `units` units of `size` concepts, each resting on up to two earlier ones. */
+function syntheticCourse(units: number, size: number, random: () => number): Course {
+	const concepts: CourseConcept[] = [];
+	for (let u = 0; u < units; u++) {
+		for (let k = 0; k < size; k++) {
+			const earlier = concepts.slice(Math.max(0, concepts.length - size * 2));
+			const prereqs = earlier.length === 0 ? [] : [...new Set([0, 1].map(() => earlier[Math.floor(random() * earlier.length)]!.id))];
+			concepts.push(concept(`c-${u}-${k}`, `u-${u}`, prereqs));
+		}
+	}
+	return { ...course(), units: Array.from({ length: units }, (_, u) => ({ id: `u-${u}`, title: `Unit ${u}` })), concepts };
+}
+
+/** Run a whole diagnostic for a learner who knows exactly `known`; return the meter and the truth. */
+function diagnose(base: Course, known: ReadonlySet<string>, random: () => number): { meter: number; truth: number } {
+	const ids = base.concepts.map((c) => c.id);
+	const g = goal(base.units.map((u) => u.id), "2026-12-20", {
+		diagnostic: { status: "ready", startedAt: "2026-11-10T00:00:00.000Z", answers: [], questions: ids.map((id) => ({ id: `q_${id}`, conceptId: id, question: "?", options: ["a", "b", "c", "d"], correctIndex: 0, explanation: "" })) },
+	});
+	const c: Course = { ...base, evidence: [], goals: [g] };
+	for (let n = 0; ; n++) {
+		const id = nextDiagnosticConcept(c, g);
+		if (!id) break;
+		// A slip one time in ten; a guess at what is not known lands now and then.
+		const correct = known.has(id) ? random() < 0.9 : random() < 0.075;
+		const at = new Date(Date.UTC(2026, 10, 10, 10, 0, n)).toISOString();
+		g.diagnostic!.answers.push({ questionId: `q_${id}`, conceptId: id, choice: 0, correct, at });
+		c.evidence.push({ id: `e${n}`, conceptId: id, correct, at, source: "diagnostic", goalId: g.id });
+	}
+	return { meter: knowledgeOf(c, ids).value!, truth: ids.filter((id) => known.has(id)).length / ids.length };
+}
+
+test("the meter after a diagnostic is close to what the learner actually knows", () => {
+	let seed = 20261124;
+	const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 2 ** 32; };
+	const base = syntheticCourse(8, 8, random);
+	const ids = base.concepts.map((c) => c.id);
+	const average = (runs: { meter: number; truth: number }[], f: (r: { meter: number; truth: number }) => number) => runs.reduce((sum, r) => sum + f(r), 0) / runs.length;
+	const repeat = (known: () => ReadonlySet<string>) => Array.from({ length: 12 }, () => diagnose(base, known(), random));
+
+	const none = repeat(() => new Set());
+	const all = repeat(() => new Set(ids));
+	assert.ok(average(none, (r) => r.meter) < 0.08, `knowing nothing reads near zero (${average(none, (r) => r.meter).toFixed(3)})`);
+	assert.ok(average(all, (r) => r.meter) > 0.85, `knowing everything reads near full (${average(all, (r) => r.meter).toFixed(3)})`);
+
+	// Part-way through the course, with a few holes: the common case.
+	const partway = Array.from({ length: 40 }, () => {
+		const reached = Math.floor(random() * 9) * 8;
+		return diagnose(base, new Set(ids.filter((_, i) => i < reached && random() > 0.1)), random);
+	});
+	const error = average(partway, (r) => Math.abs(r.meter - r.truth));
+	const bias = average(partway, (r) => r.meter - r.truth);
+	assert.ok(error < 0.1, `mean error under ten points (${error.toFixed(3)})`);
+	assert.ok(Math.abs(bias) < 0.06, `no lean either way (${bias.toFixed(3)})`);
 });
 
 test("a long session is named after its unit, numbered when the unit runs over several", () => {

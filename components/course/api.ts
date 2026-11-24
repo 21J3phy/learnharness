@@ -74,6 +74,9 @@ export const courseApi = {
 		send<CourseView>(`/api/courses/${id}/goals/${goalId}/diagnostic`, json("POST", { action: "finish" })),
 	plan: (id: string, goalId: string, prefs?: { minutesPerDay: number; weekdays: number[] }) =>
 		send<CourseView>(`/api/courses/${id}/goals/${goalId}/plan`, json("POST", prefs)),
+	/** One turn of the conversation about the plan; the reply is the last of the goal's `planChat`. */
+	planChat: (id: string, goalId: string, message: string) =>
+		send<CourseView>(`/api/courses/${id}/goals/${goalId}/plan/chat`, json("POST", { message })),
 	startSession: (id: string, goalId: string, sessionId: string) =>
 		send<{ chatId: string; prompt?: string }>(`/api/courses/${id}/goals/${goalId}/sessions/${sessionId}`, json("POST", { action: "start" })),
 	completeSession: (id: string, goalId: string, sessionId: string) =>

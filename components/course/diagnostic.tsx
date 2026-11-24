@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { XIcon } from "lucide-react";
-import { MessageResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
 import { diagnosticBudget, diagnosticCandidates, goalScope, indexCourse, knowledgeOf, masteryOf, type Goal } from "@/src/core";
 import { courseApi, type CourseView } from "./api";
-import { ErrorNote, Hl, LinkButton, Meter, PrimaryButton, Stroke, Tex, useAction } from "./parts";
+import { ErrorNote, Hl, LinkButton, Md, Meter, PrimaryButton, Stroke, Tex, useAction } from "./parts";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
 
@@ -44,6 +43,8 @@ export function DiagnosticRun({ course, goal, adopt, onClose, onPlan }: {
 	const question = diagnostic.questions.find((q) => q.id === questionId);
 	const asked = diagnostic.answers.length;
 	const budget = useMemo(() => diagnosticBudget(diagnosticCandidates(course, goal).length), [course, goal]);
+	// The question on screen: the one being answered, or the one just answered.
+	const number = Math.max(1, Math.min(asked + (reveal ? 0 : 1), budget));
 	// The meter this diagnostic is setting — it moves with every answer.
 	const knowledge = useMemo(() => knowledgeOf(course, goalScope(course, goal).core), [course, goal]);
 	const finished = diagnostic.status === "done" && !reveal;
@@ -84,11 +85,16 @@ export function DiagnosticRun({ course, goal, adopt, onClose, onPlan }: {
 				<div className="flex-1">
 					{!finished && (
 						<>
-							<p className="flex items-baseline justify-between font-ui text-sm text-muted-foreground">
-								<span>Question {Math.min(asked + (reveal ? 0 : 1), budget)} of at most {budget}</span>
-								<span className="tabular-nums" data-testid="diagnostic-meter">{knowledge.value === null ? "" : `${Math.round(knowledge.value * 100)}% known so far`}</span>
+							<p className="font-ui text-sm text-muted-foreground" data-testid="diagnostic-count">Question {number} of at most {budget}</p>
+							{/* The bar is how far through the quiz this is — not the estimate. */}
+							<Stroke value={number / budget} label={`Question ${number} of at most ${budget}`} className="mt-1" />
+							<p
+								className="mt-2 min-h-5 font-ui text-sm text-muted-foreground"
+								data-testid="diagnostic-meter"
+								title={`An estimate, from your answers so far, of how much of what ${goal.title} covers you already know. It moves with every answer.`}
+							>
+								{knowledge.value === null ? "" : <>Estimate so far: you know about <span className="tabular-nums text-foreground">{Math.round(knowledge.value * 100)}%</span> of <Tex>{goal.title}</Tex>.</>}
 							</p>
-							<Stroke value={knowledge.value ?? 0} label={`${goal.title}: estimate so far`} className="mt-1" />
 						</>
 					)}
 				</div>
@@ -104,7 +110,7 @@ export function DiagnosticRun({ course, goal, adopt, onClose, onPlan }: {
 					) : question ? (
 						<>
 							<div className="text-[19px] leading-relaxed" data-testid="diagnostic-question">
-								<MessageResponse>{question.question}</MessageResponse>
+								<Md>{question.question}</Md>
 							</div>
 							<ol className="mt-8 space-y-2.5">
 								{question.options.map((option, i) => {
@@ -128,7 +134,7 @@ export function DiagnosticRun({ course, goal, adopt, onClose, onPlan }: {
 											>
 												<span className="w-4 shrink-0 font-ui text-sm text-muted-foreground">{LETTERS[i]}</span>
 												<span className={cn("flex-1 text-[16.5px] leading-snug", reveal && right && "[&_p]:inline")}>
-													<MessageResponse>{option}</MessageResponse>
+													<Md>{option}</Md>
 												</span>
 												{reveal && right && <span className="shrink-0 font-ui text-sm"><span className="sy-hl">correct</span></span>}
 												{reveal && chosen && !right && <span className="shrink-0 font-ui text-sm text-error">your answer</span>}
@@ -142,7 +148,7 @@ export function DiagnosticRun({ course, goal, adopt, onClose, onPlan }: {
 								{reveal ? (
 									<div data-testid="diagnostic-reveal">
 										{reveal.explanation && (
-											<div className="text-[15.5px] leading-relaxed text-muted-foreground"><MessageResponse>{reveal.explanation}</MessageResponse></div>
+											<div className="text-[15.5px] leading-relaxed text-muted-foreground"><Md>{reveal.explanation}</Md></div>
 										)}
 										<PrimaryButton onClick={next} className="mt-5" autoFocus data-testid="diagnostic-next">
 											{reveal.done ? "See where you stand" : "Next question"}

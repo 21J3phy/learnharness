@@ -76,6 +76,10 @@ export async function runSubmitAgent<T>(opts: {
 	 *  a problem string yields an isError result (invalidInputResult) →
 	 *  the model retries within maxTurns. null = accept. */
 	validate?: (value: T) => string | null;
+	/** For an agent whose submission is a message to a person: when the
+	 *  model answered in plain text instead of submitting, the value that
+	 *  text stands for (undefined = still a failure). */
+	fromText?: (text: string) => T | undefined;
 }): Promise<T> {
 	let submitted: T | undefined;
 	const result = await runSubagent(
@@ -128,7 +132,7 @@ export async function runSubmitAgent<T>(opts: {
 			shouldStop: (_message, toolResults) => toolResults.some((r) => r.toolName === opts.toolName && !r.isError),
 		},
 	);
-	void result;
+	if (!submitted && opts.fromText) submitted = opts.fromText(result.text);
 	if (!submitted) throw new Error(opts.neverSubmitted);
 	return submitted;
 }

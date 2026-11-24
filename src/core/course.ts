@@ -134,6 +134,17 @@ export interface PlanPrefs {
 	minutesPerDay: number;
 	/** Days of the week the learner studies (0 = Sunday … 6 = Saturday). */
 	weekdays: number[];
+	/** Minutes for particular days (YYYY-MM-DD), overriding the two above:
+	 *  0 is a day off, more is a longer day. */
+	days?: Record<string, number>;
+	/** Also teach the earlier concepts the goal rests on, when there is
+	 *  room for them (default true). */
+	prerequisites?: boolean;
+	/** Concepts kept out of the plan at the learner's word. */
+	skip?: string[];
+	/** Hold the last days back for a practice exam and a final review
+	 *  (default true). */
+	practice?: boolean;
 }
 
 export const DEFAULT_PLAN_PREFS: PlanPrefs = { minutesPerDay: 45, weekdays: [0, 1, 2, 3, 4, 5, 6] };
@@ -142,9 +153,24 @@ export interface Plan {
 	createdAt: string;
 	prefs: PlanPrefs;
 	sessions: PlanSession[];
+	/** Concepts that did not fit the time given, in course order. The plan
+	 *  keeps to the learner's time and says what it had to leave out. */
+	left?: string[];
+	/** Set when each concept gets less than its usual time so that more of
+	 *  them fit: the share of the usual time kept, 0–1. */
+	pace?: number;
 	/** Set when the material does not fit the stated time: the minutes per
-	 *  study day the plan actually needs. */
+	 *  study day that covering all of it at the usual pace would take. */
 	neededMinutesPerDay?: number;
+}
+
+/** One turn of the conversation about a goal's plan. */
+export interface PlanMessage {
+	role: "user" | "assistant";
+	text: string;
+	at: string;
+	/** The plan was changed by this reply. */
+	changed?: boolean;
 }
 
 export interface Goal {
@@ -159,6 +185,8 @@ export interface Goal {
 	createdAt: string;
 	diagnostic?: Diagnostic;
 	plan?: Plan;
+	/** The conversation about the plan, oldest first. */
+	planChat?: PlanMessage[];
 }
 
 /** An assessment found in the material (a syllabus usually lists them). */
@@ -374,8 +402,13 @@ export function descendantsOf(index: CourseIndex, id: string): Map<string, numbe
 export type MasteryState = "untested" | "new" | "shaky" | "solid";
 
 export interface Mastery {
-	/** Estimated probability the learner holds the concept, 0–1. */
+	/** The estimate from the evidence alone, 0–1: every concept starts from
+	 *  the same prior. It decides the state. */
 	p: number;
+	/** The same evidence read against the learner's own level — how their
+	 *  diagnostic went around this concept — 0–1. The knowledge meter is the
+	 *  mean of these. */
+	likely: number;
 	state: MasteryState;
 	/** Direct observations on this concept. */
 	direct: number;
@@ -394,6 +427,60 @@ function stateOf(p: number, observed: boolean): MasteryState {
 	return p >= SOLID_AT ? "solid" : p >= SHAKY_AT ? "shaky" : "new";
 }
 
+/** How many answers a rate is worth before the learner's own count. */
+const RATE_WEIGHT = 2;
+
+/**
+ * The learner's own level, read from their diagnostic answers: the share
+ * they got right around a concept. A diagnostic samples what the learner
+ * already knew, so its hit rate says something about the concepts it did not
+ * reach — someone who answers everything right probably knows the rest of
+ * that unit too, and someone who knows none of it probably does not. (Answers
+ * in a teaching session say no such thing: they follow the teaching.)
+ *
+ * The rate for a concept is its unit's, drawn towards the course's when the
+ * unit has few answers, which is itself drawn towards PRIOR. A concept's own
+ * answer is left out of its own rate.
+ */
+function learnerRates(index: CourseIndex) {
+	const seen = new Map<string, number>();
+	const course = { sum: 0, n: 0 };
+	const units = new Map<string, { sum: number; n: number }>();
+	const unitOf = (id: string) => {
+		const unitId = index.byId.get(id)!.unitId;
+		let unit = units.get(unitId);
+		if (!unit) units.set(unitId, (unit = { sum: 0, n: 0 }));
+		return unit;
+	};
+	return {
+		/** A diagnostic answer; a later one on the same concept replaces it. */
+		see(id: string, correct: boolean) {
+			const unit = unitOf(id);
+			const before = seen.get(id);
+			const now = correct ? 1 : 0;
+			if (before === undefined) { course.n++; unit.n++; }
+			course.sum += now - (before ?? 0);
+			unit.sum += now - (before ?? 0);
+			seen.set(id, now);
+		},
+		of(id: string): number {
+			const unit = unitOf(id);
+			const own = seen.get(id);
+			const less = own === undefined ? 0 : 1;
+			const overall = (RATE_WEIGHT * PRIOR + course.sum - (own ?? 0)) / (RATE_WEIGHT + course.n - less);
+			return (RATE_WEIGHT * overall + unit.sum - (own ?? 0)) / (RATE_WEIGHT + unit.n - less);
+		},
+	};
+}
+
+interface Estimate {
+	p: number;
+	likely: number;
+	direct: number;
+	inferred: number;
+	lastAt?: string;
+}
+
 /**
  * Fold the evidence, oldest first, into an estimate per concept.
  *
@@ -402,17 +489,27 @@ function stateOf(p: number, observed: boolean): MasteryState {
  * answer drops the concept and, fading the same way, everything built on it.
  * A direct observation always outweighs an inferred one.
  *
- * `onStep` sees the running estimates after each piece of evidence — the
- * knowledge meter's history is read from it.
+ * Every step moves an estimate towards 1 or towards 0 by a fraction, so an
+ * estimate is always `scale × start + shift`. That one record is read twice:
+ * from PRIOR (`p`, the evidence alone) and from the learner's own rate
+ * (`likely`).
+ *
+ * `onStep` sees the running estimates after each piece of evidence, and
+ * which concepts it touched — the knowledge meter's history is read from it.
  */
 function foldEvidence(
 	course: Pick<Course, "concepts" | "units" | "evidence">,
 	index: CourseIndex,
-	onStep?: (evidence: Evidence, estimates: ReadonlyMap<string, { p: number; direct: number; inferred: number }>) => void,
-): Map<string, { p: number; direct: number; inferred: number; lastAt?: string }> {
-	const m = new Map<string, { p: number; direct: number; inferred: number; lastAt?: string }>(
-		course.concepts.map((c) => [c.id, { p: PRIOR, direct: 0, inferred: 0 }]),
+	onStep?: (evidence: Evidence, likely: (id: string) => number, touched: readonly string[]) => void,
+): Map<string, Estimate> {
+	const m = new Map<string, { scale: number; shift: number; direct: number; inferred: number; lastAt?: string }>(
+		course.concepts.map((c) => [c.id, { scale: 1, shift: 0, direct: 0, inferred: 0 }]),
 	);
+	const rates = learnerRates(index);
+	const likely = (id: string) => { const s = m.get(id)!; return s.scale * rates.of(id) + s.shift; };
+	// p ← p + (1 − p)·k and p ← p·(1 − k)
+	const lift = (s: { scale: number; shift: number }, k: number) => { s.scale *= 1 - k; s.shift = s.shift * (1 - k) + k; };
+	const drop = (s: { scale: number; shift: number }, k: number) => { s.scale *= 1 - k; s.shift *= 1 - k; };
 	const ancestors = new Map<string, Map<string, number>>();
 	const descendants = new Map<string, Map<string, number>>();
 	const evidence = [...course.evidence].sort((a, b) => a.at.localeCompare(b.at));
@@ -420,31 +517,41 @@ function foldEvidence(
 		const self = m.get(e.conceptId);
 		if (!self) continue;
 		const weight = e.source === "manual" ? 0.5 : 1;
+		const touched = [e.conceptId];
+		if (e.source === "diagnostic") rates.see(e.conceptId, e.correct);
 		if (e.correct) {
-			self.p += (1 - self.p) * 0.6 * weight;
+			lift(self, 0.6 * weight);
 			if (!ancestors.has(e.conceptId)) ancestors.set(e.conceptId, ancestorsOf(index, e.conceptId));
 			for (const [id, d] of ancestors.get(e.conceptId)!) {
 				const a = m.get(id)!;
 				// Deliberately modest: one right answer (a quarter of them are
 				// guesses) must not mark a prerequisite solid on its own. It
 				// takes a second supporting answer, or a direct one.
-				a.p += (1 - a.p) * 0.45 * 0.7 ** (d - 1) * weight;
+				lift(a, 0.45 * 0.7 ** (d - 1) * weight);
 				a.inferred++;
+				touched.push(id);
 			}
 		} else {
-			self.p *= 1 - 0.65 * weight;
+			drop(self, 0.65 * weight);
 			if (!descendants.has(e.conceptId)) descendants.set(e.conceptId, descendantsOf(index, e.conceptId));
 			for (const [id, d] of descendants.get(e.conceptId)!) {
 				const a = m.get(id)!;
-				a.p *= 1 - 0.3 * 0.6 ** (d - 1) * weight;
+				drop(a, 0.3 * 0.6 ** (d - 1) * weight);
 				a.inferred++;
+				touched.push(id);
 			}
 		}
 		self.direct++;
 		self.lastAt = e.at;
-		onStep?.(e, m);
+		onStep?.(e, likely, touched);
 	}
-	return m;
+	return new Map([...m].map(([id, s]) => [id, {
+		p: s.scale * PRIOR + s.shift,
+		likely: likely(id),
+		direct: s.direct,
+		inferred: s.inferred,
+		...(s.lastAt ? { lastAt: s.lastAt } : {}),
+	}]));
 }
 
 export function masteryOf(course: Pick<Course, "concepts" | "units" | "evidence">, index = indexCourse(course)): Map<string, Mastery> {
@@ -461,12 +568,13 @@ export interface KnowledgePoint {
 
 /**
  * The knowledge meter over a set of concepts (a goal's, or the course's):
- * the share of them the learner is estimated to hold.
+ * the share of them the learner is estimated to hold — the mean of the
+ * concepts' `likely`.
  *
  * It is first set by the diagnostic and then moves with every graded
  * answer after it — a check in a teaching session counts exactly like a
  * diagnostic question. `history` is the estimate after each answer that
- * touched the set, so the meter can show itself being refined.
+ * bore on the set, so the meter can show itself being refined.
  */
 export interface Knowledge {
 	/** null until at least one answer bears on these concepts. */
@@ -487,25 +595,29 @@ export function knowledgeOf(
 	const set = new Set(ids.filter((id) => index.byId.has(id)));
 	const history: KnowledgePoint[] = [];
 	if (set.size === 0) return { value: null, answers: 0, measured: 0, total: 0, history };
-	const mean = (m: ReadonlyMap<string, { p: number }>) => {
-		let sum = 0;
-		for (const id of set) sum += m.get(id)!.p;
-		return sum / set.size;
-	};
-	let before = PRIOR;
+	let before = Number.NaN;
 	let answers = 0;
-	const final = foldEvidence(course, index, (e, m) => {
-		const value = mean(m);
-		// An answer bears on the set when it is on one of its concepts or
-		// moved the estimate of one through the graph.
-		if (!set.has(e.conceptId) && Math.abs(value - before) < 1e-9) return;
+	const final = foldEvidence(course, index, (e, likely, touched) => {
+		let sum = 0;
+		for (const id of set) sum += likely(id);
+		const value = sum / set.size;
+		// The meter starts with the first answer on one of its concepts, or
+		// on one tied to them through the graph. After that an answer bears
+		// on it whenever it moves it: one elsewhere in the diagnostic still
+		// says how the learner is doing.
+		const moved = Math.abs(value - before) >= 1e-9;
 		before = value;
+		if (!touched.some((id) => set.has(id)) && (answers === 0 || !moved)) return;
 		answers++;
 		history.push({ at: e.at, value });
 	});
-	let measured = 0;
-	for (const id of set) if (final.get(id)!.direct > 0) measured++;
-	return { value: answers > 0 ? mean(final) : null, answers, measured, total: set.size, history };
+	let measured = 0, sum = 0;
+	for (const id of set) {
+		const estimate = final.get(id)!;
+		if (estimate.direct > 0) measured++;
+		sum += estimate.likely;
+	}
+	return { value: answers > 0 ? sum / set.size : null, answers, measured, total: set.size, history };
 }
 
 /** How much of a set of concepts is "highlighted": solid counts fully,
@@ -644,6 +756,25 @@ function sessionTitles(packs: readonly (readonly string[])[], course: Pick<Cours
 	});
 }
 
+/** A plan may run this far over a day's time before anything is cut. */
+const ROOM = 1.1;
+/** The least of its usual time a concept is given when time is short. */
+const MIN_PACE = 0.6;
+
+/** The plan's preferences with their defaults filled in and stale days dropped. */
+function settledPrefs(prefs: PlanPrefs, today: string): PlanPrefs {
+	const weekdays = prefs.weekdays.length > 0 ? prefs.weekdays : DEFAULT_PLAN_PREFS.weekdays;
+	const days = Object.fromEntries(Object.entries(prefs.days ?? {}).filter(([day, minutes]) => isDay(day) && day >= today && Number.isFinite(minutes)).map(([day, minutes]) => [day, Math.max(0, Math.round(minutes))]));
+	return {
+		minutesPerDay: Math.max(10, Math.round(prefs.minutesPerDay)),
+		weekdays,
+		...(Object.keys(days).length > 0 ? { days } : {}),
+		...(prefs.prerequisites === false ? { prerequisites: false } : {}),
+		...(prefs.skip && prefs.skip.length > 0 ? { skip: [...new Set(prefs.skip)] } : {}),
+		...(prefs.practice === false ? { practice: false } : {}),
+	};
+}
+
 /**
  * Lay the goal's unlearned concepts over the days that remain.
  *
@@ -653,53 +784,111 @@ function sessionTitles(packs: readonly (readonly string[])[], course: Pick<Cours
  * are spread evenly over the study days; free days in between become short
  * reviews of what came before. With enough runway the last days are held
  * back for a practice exam and a final review.
+ *
+ * The learner's time is kept to. When the material does not fit it, the
+ * plan gives way in this order: the practice exam's day goes back to
+ * learning; the earlier concepts the goal only rests on are left out, the
+ * likeliest-known first; what the goal itself covers gets a quicker pass;
+ * and last, the concepts the least is built on are left out. `left`,
+ * `pace` and `neededMinutesPerDay` say what was given up.
  */
 export function buildPlan(
 	course: Pick<Course, "concepts" | "units" | "evidence">,
 	goal: Pick<Goal, "unitIds" | "date" | "plan">,
 	today: string,
-	prefs: PlanPrefs = goal.plan?.prefs ?? DEFAULT_PLAN_PREFS,
+	given: PlanPrefs = goal.plan?.prefs ?? DEFAULT_PLAN_PREFS,
 	now: Date = new Date(),
 ): Plan {
 	const index = indexCourse(course);
 	const mastery = masteryOf(course, index);
 	const scope = goalScope(course, goal, index);
+	const prefs = settledPrefs(given, today);
 	const kept = (goal.plan?.sessions ?? []).filter((s) => s.status === "done");
 	const mk = (date: string, n: number) => `ps_${date.replaceAll("-", "")}_${n}`;
 
-	const weekdays = prefs.weekdays.length > 0 ? prefs.weekdays : DEFAULT_PLAN_PREFS.weekdays;
-	const minutesPerDay = Math.max(10, Math.round(prefs.minutesPerDay));
 	const taken = new Set(kept.map((s) => s.date));
-	let days: string[] = [];
+	const minutesOn = (day: string) => prefs.days?.[day] ?? (prefs.weekdays.includes(weekdayOf(day)) ? prefs.minutesPerDay : 0);
+	let days: { date: string; minutes: number }[] = [];
 	for (let d = today; d < goal.date; d = addDays(d, 1)) {
-		if (weekdays.includes(weekdayOf(d)) && !taken.has(d)) days.push(d);
+		if (minutesOn(d) >= 10 && !taken.has(d)) days.push({ date: d, minutes: minutesOn(d) });
 	}
-	// Nothing before the exam fits the chosen weekdays: use today anyway.
-	if (days.length === 0 && today <= goal.date && !taken.has(today)) days = [today];
+	// Nothing before the exam fits the chosen days: use today anyway.
+	if (days.length === 0 && today <= goal.date && !taken.has(today) && prefs.days?.[today] !== 0) days = [{ date: today, minutes: prefs.minutesPerDay }];
 
-	const solid = (id: string) => mastery.get(id)!.state === "solid";
-	const todo = [...scope.assumed, ...scope.core].filter((id) => !solid(id)).sort((a, b) => index.rank.get(a)! - index.rank.get(b)!);
-	const cost = (id: string) => (mastery.get(id)!.state === "shaky" ? MINUTES_SHAKY : MINUTES_NEW);
-	const total = todo.reduce((sum, id) => sum + cost(id), 0);
+	const core = new Set(scope.core);
+	const skip = new Set(prefs.skip ?? []);
+	const rank = (id: string) => index.rank.get(id)!;
+	const wanted = [...(prefs.prerequisites === false ? [] : scope.assumed), ...scope.core]
+		.filter((id) => mastery.get(id)!.state !== "solid" && !skip.has(id))
+		.sort((a, b) => rank(a) - rank(b));
+	// A concept that is partly there takes a short revisit — and so does an
+	// earlier one the learner was never asked about but probably knows.
+	const usual = (id: string) => {
+		const m = mastery.get(id)!;
+		return m.state === "shaky" || (!core.has(id) && m.direct === 0 && m.likely >= 0.6) ? MINUTES_SHAKY : MINUTES_NEW;
+	};
+	const full = wanted.reduce((sum, id) => sum + usual(id), 0);
 
 	const sessions: PlanSession[] = [...kept];
-	if (days.length === 0) return { createdAt: now.toISOString(), prefs: { minutesPerDay, weekdays }, sessions };
+	if (days.length === 0) return { createdAt: now.toISOString(), prefs, sessions };
 
 	// Hold back the last days for practice and a final review when there is room.
-	const reserve = total === 0 ? 0 : days.length >= 6 ? 2 : days.length >= 4 ? 1 : 0;
+	const wantsPractice = prefs.practice !== false;
+	let reserve = full === 0 ? 0 : days.length >= 6 && wantsPractice ? 2 : days.length >= 4 ? 1 : 0;
+	const capacity = (held: number) => days.slice(0, days.length - held).reduce((sum, d) => sum + d.minutes, 0);
+
+	let todo = wanted;
+	let pace = 1;
+	let needed: number | undefined;
+	const left = new Set<string>();
+	if (full > capacity(reserve) * ROOM) {
+		needed = Math.ceil(full / Math.max(1, days.length - reserve) / 5) * 5;
+		if (reserve === 2) reserve = 1;
+		const room = capacity(reserve) * ROOM;
+		let total = full;
+		// The earlier concepts the goal only rests on, likeliest-known first.
+		const outside = wanted.filter((id) => !core.has(id)).sort((a, b) => mastery.get(b)!.likely - mastery.get(a)!.likely || rank(a) - rank(b));
+		for (const id of outside) {
+			if (total <= room) break;
+			left.add(id);
+			total -= usual(id);
+		}
+		// A quicker pass over what the goal itself covers.
+		if (total > room) {
+			pace = Math.max(MIN_PACE, capacity(reserve) / total);
+			total *= pace;
+		}
+		// Then the concepts the least is built on, the latest first.
+		if (total > room) {
+			const rest = wanted.filter((id) => !left.has(id));
+			const within = new Set(rest);
+			const builtOn = new Map(rest.map((id) => [id, [...descendantsOf(index, id).keys()].filter((d) => within.has(d)).length]));
+			for (const id of [...rest].sort((a, b) => builtOn.get(a)! - builtOn.get(b)! || rank(b) - rank(a))) {
+				if (total <= room) break;
+				left.add(id);
+				total -= usual(id) * pace;
+			}
+		}
+		todo = wanted.filter((id) => !left.has(id));
+	}
+	const cost = (id: string) => usual(id) * pace;
+	const total = todo.reduce((sum, id) => sum + cost(id), 0);
 	const learnDays = days.slice(0, days.length - reserve);
 	const reserved = days.slice(days.length - reserve);
 
-	let needed: number | undefined;
 	if (todo.length > 0) {
-		const count = Math.min(learnDays.length, Math.max(1, Math.ceil(total / minutesPerDay)));
-		const budget = total / count;
-		if (budget > minutesPerDay * 1.25) needed = Math.ceil(budget / 5) * 5;
-		// Pack prerequisites-first into `count` sessions of about `budget` minutes.
+		const available = learnDays.reduce((sum, d) => sum + d.minutes, 0);
+		const count = Math.min(learnDays.length, Math.max(1, Math.ceil(total / (available / learnDays.length))));
+		const spread = (n: number) => Array.from({ length: n }, (_, i) => Math.min(learnDays.length - 1, Math.floor((i * learnDays.length) / n)));
+		// Each session's share of the work follows its day's share of the time.
+		const chosen = spread(count);
+		const chosenMinutes = chosen.reduce((sum, at) => sum + learnDays[at]!.minutes, 0);
+		const budget = (i: number) => (total * learnDays[chosen[Math.min(i, count - 1)]!]!.minutes) / chosenMinutes;
+		// Pack prerequisites-first into `count` sessions of about their budget.
 		const packs: string[][] = [];
 		let current: string[] = [], spent = 0;
 		for (const id of todo) {
-			if (current.length > 0 && spent + cost(id) / 2 > budget && packs.length < count - 1) {
+			if (current.length > 0 && spent + cost(id) / 2 > budget(packs.length) && packs.length < count - 1) {
 				packs.push(current);
 				current = [];
 				spent = 0;
@@ -710,16 +899,19 @@ export function buildPlan(
 		if (current.length > 0) packs.push(current);
 		const used = new Set<number>();
 		const titles = sessionTitles(packs, course, index);
+		const placed = spread(packs.length);
 		packs.forEach((ids, i) => {
-			const at = Math.min(learnDays.length - 1, Math.floor((i * learnDays.length) / packs.length));
+			const at = placed[i]!;
 			used.add(at);
+			const minutes = Math.max(10, Math.round(ids.reduce((s, id) => s + cost(id), 0) / 5) * 5);
 			sessions.push({
-				id: mk(learnDays[at]!, i),
-				date: learnDays[at]!,
+				id: mk(learnDays[at]!.date, i),
+				date: learnDays[at]!.date,
 				kind: "learn",
 				title: titles[i]!,
 				conceptIds: ids,
-				minutes: Math.max(10, Math.round(ids.reduce((s, id) => s + cost(id), 0) / 5) * 5),
+				// When time is short a session is the day's time, not a little over.
+				minutes: needed ? Math.min(minutes, Math.max(10, learnDays[at]!.minutes)) : minutes,
 				status: "upcoming",
 			});
 		});
@@ -727,33 +919,149 @@ export function buildPlan(
 		// most recent material first — but only after two quiet days, so a
 		// light plan stays light instead of filling every gap.
 		let lastBusy = -3;
-		learnDays.forEach((date, i) => {
+		learnDays.forEach(({ date, minutes }, i) => {
 			if (used.has(i)) { lastBusy = i; return; }
 			if (i - lastBusy < 3 || used.has(i + 1)) return;
 			const before = sessions.filter((s) => s.kind === "learn" && s.status === "upcoming" && s.date < date).sort((a, b) => b.date.localeCompare(a.date));
 			const ids = before.slice(0, 2).flatMap((s) => s.conceptIds);
 			if (ids.length === 0) return;
 			lastBusy = i;
-			sessions.push({ id: mk(date, 90), date, kind: "review", title: "Review", conceptIds: ids, minutes: MINUTES_REVIEW, status: "upcoming" });
+			sessions.push({ id: mk(date, 90), date, kind: "review", title: "Review", conceptIds: ids, minutes: Math.min(MINUTES_REVIEW, minutes), status: "upcoming" });
 		});
 	}
 	if (reserved.length === 2) {
-		sessions.push({ id: mk(reserved[0]!, 91), date: reserved[0]!, kind: "practice", title: "Practice exam", conceptIds: scope.core, minutes: Math.max(MINUTES_PRACTICE, minutesPerDay), status: "upcoming" });
+		const { date, minutes } = reserved[0]!;
+		sessions.push({ id: mk(date, 91), date, kind: "practice", title: "Practice exam", conceptIds: scope.core, minutes: Math.max(MINUTES_PRACTICE, minutes), status: "upcoming" });
 	}
 	if (reserved.length >= 1) {
-		const date = reserved.at(-1)!;
-		sessions.push({ id: mk(date, 92), date, kind: "review", title: "Final review", conceptIds: scope.core, minutes: Math.min(minutesPerDay, 30), status: "upcoming" });
+		const { date, minutes } = reserved.at(-1)!;
+		sessions.push({ id: mk(date, 92), date, kind: "review", title: "Final review", conceptIds: scope.core, minutes: Math.min(minutes, 30), status: "upcoming" });
 	}
 	// Everything already solid: keep the knowledge warm until the day.
-	if (todo.length === 0 && scope.core.length > 0) {
+	if (wanted.length === 0 && scope.core.length > 0) {
 		const step = Math.max(1, Math.round(days.length / Math.min(3, days.length)));
 		for (let i = 0; i < days.length; i += step) {
 			const last = i + step >= days.length;
-			sessions.push({ id: mk(days[i]!, 93), date: days[i]!, kind: last ? "practice" : "review", title: last ? "Practice exam" : "Review", conceptIds: scope.core, minutes: last ? MINUTES_PRACTICE : MINUTES_REVIEW, status: "upcoming" });
+			sessions.push({ id: mk(days[i]!.date, 93), date: days[i]!.date, kind: last ? "practice" : "review", title: last ? "Practice exam" : "Review", conceptIds: scope.core, minutes: last ? MINUTES_PRACTICE : MINUTES_REVIEW, status: "upcoming" });
 		}
 	}
+	// A session already begun keeps its chat when the new plan has one of
+	// the same kind on that day.
+	for (const begun of goal.plan?.sessions ?? []) {
+		if (begun.status !== "upcoming" || !begun.chatId) continue;
+		const heir = sessions.find((s) => s.status === "upcoming" && !s.chatId && s.date === begun.date && s.kind === begun.kind);
+		if (heir) heir.chatId = begun.chatId;
+	}
 	sessions.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
-	return { createdAt: now.toISOString(), prefs: { minutesPerDay, weekdays }, sessions, ...(needed ? { neededMinutesPerDay: needed } : {}) };
+	return {
+		createdAt: now.toISOString(),
+		prefs,
+		sessions,
+		...(left.size > 0 ? { left: wanted.filter((id) => left.has(id)) } : {}),
+		...(pace < 1 ? { pace } : {}),
+		...(needed ? { neededMinutesPerDay: needed } : {}),
+	};
+}
+
+// ─── the plan, read back ─────────────────────────────────────────────────────
+
+/** One unit of a goal as the plan treats it. */
+export interface UnitOutline {
+	unitId: string;
+	title: string;
+	/** Part of what the goal covers, or earlier material it rests on. */
+	role: "core" | "earlier";
+	/** Its concepts within the goal's reach, and how many are solid. */
+	concepts: number;
+	solid: number;
+	/** How much of it is held, 0–1 (partial knowledge counts partly). */
+	progress: number;
+	/** The first and last day the plan spends on it. */
+	from?: string;
+	to?: string;
+	/** The session to open for it: the first still to do, else the last done. */
+	sessionId?: string;
+	/** Concepts still to be taught / already taught in a finished session / left out for lack of time. */
+	upcoming: number;
+	taught: number;
+	left: number;
+}
+
+/**
+ * The plan by unit: when each is covered and how much of it is held. The
+ * goal's own units always appear; an earlier unit appears only when the
+ * plan spends time on it.
+ */
+export function planOutline(
+	course: Pick<Course, "concepts" | "units" | "evidence">,
+	goal: Pick<Goal, "unitIds" | "date" | "plan">,
+	index = indexCourse(course),
+	mastery = masteryOf(course, index),
+): UnitOutline[] {
+	const scope = goalScope(course, goal, index);
+	const own = new Set(goal.unitIds);
+	const reach = [...scope.assumed, ...scope.core];
+	const learn = (goal.plan?.sessions ?? []).filter((s) => s.kind === "learn").sort((a, b) => a.date.localeCompare(b.date));
+	const left = new Set(goal.plan?.left ?? []);
+	const out: UnitOutline[] = [];
+	for (const unit of course.units) {
+		const ids = reach.filter((id) => index.byId.get(id)!.unitId === unit.id);
+		if (ids.length === 0) continue;
+		const mine = new Set(ids);
+		const touching = learn.filter((s) => s.conceptIds.some((id) => mine.has(id)));
+		if (!own.has(unit.id) && touching.length === 0) continue;
+		const count = (status: PlanSession["status"]) => new Set(touching.filter((s) => s.status === status).flatMap((s) => s.conceptIds.filter((id) => mine.has(id)))).size;
+		const { progress, solid } = progressOf(ids, mastery);
+		const open = touching.find((s) => s.status === "upcoming") ?? touching.at(-1);
+		out.push({
+			unitId: unit.id,
+			title: unit.title,
+			role: own.has(unit.id) ? "core" : "earlier",
+			concepts: ids.length,
+			solid,
+			progress,
+			...(touching.length > 0 ? { from: touching[0]!.date, to: touching.at(-1)!.date } : {}),
+			...(open ? { sessionId: open.id } : {}),
+			upcoming: count("upcoming"),
+			taught: count("done"),
+			left: ids.filter((id) => left.has(id)).length,
+		});
+	}
+	return out;
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const minutesInWords = (minutes: number) => (minutes < 60 ? `${minutes} min` : minutes % 60 === 0 ? `${minutes / 60} h` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`);
+
+/**
+ * A prompt the learner can hand to their own assistant (one with access
+ * to their calendar) to put the plan's remaining sessions on it. Dates are
+ * written out in full so nothing depends on the reader's idea of "today".
+ */
+export function calendarPrompt(course: Pick<Course, "title" | "concepts">, goal: Pick<Goal, "title" | "date" | "plan">, today: string): string {
+	const title = new Map(course.concepts.map((c) => [c.id, c.title]));
+	const day = (date: string) => `${date} (${WEEKDAYS[weekdayOf(date)]})`;
+	const sessions = (goal.plan?.sessions ?? []).filter((s) => s.status === "upcoming" && s.date >= today).sort((a, b) => a.date.localeCompare(b.date));
+	const lines = sessions.map((s, i) => {
+		const covers = s.kind === "learn" ? s.conceptIds.flatMap((id) => title.get(id) ?? []).join("; ") : s.kind === "practice" ? "a timed practice exam on everything" : "a recall of what came before";
+		return `${i + 1}. ${day(s.date)} | ${minutesInWords(s.minutes)} | ${goal.title}: ${s.title} | Covers: ${covers}`;
+	});
+	return [
+		`Please add my study plan for ${goal.title} (${course.title}) to my calendar.`,
+		"",
+		"Each line below is one study session: date | length | event title | what it covers.",
+		"",
+		...lines,
+		"",
+		`The exam: ${day(goal.date)} | ${goal.title} (${course.title})`,
+		"",
+		"How to do it:",
+		"- Create one event per session, on its date and for its length, with the event title as written. Put what it covers in the event's description.",
+		"- Find a free slot on that day for each one. If you don't know when I like to study, ask me once before creating anything.",
+		"- Add the exam as an all-day event on its date, unless it is already on my calendar.",
+		"- Don't move, shorten or delete anything that is already there. If a day has no room, tell me instead of squeezing it in.",
+		"- When you're done, list the events you created with their times.",
+	].join("\n");
 }
 
 /** Upcoming sessions whose day has passed — the signal to rebuild the plan. */

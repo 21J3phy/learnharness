@@ -20,6 +20,7 @@ import { useFileDrop, type Dropped } from "./dropzone";
 import { sortFiles, sourceSize } from "./files";
 import { GoalForm } from "./goal-form";
 import { DayStrip } from "./plan-strip";
+import { PlanView } from "./plan-view";
 import { ErrorNote, LinkButton, Meter, MoreMenu, PageFrame, PrimaryButton, Stroke, Tex, awayDays, dayMonth, duration, longDay, useAction, weekdayShort, type MenuItem } from "./parts";
 
 const BUILDING = new Set(["reading", "mapping", "organizing"]);
@@ -184,9 +185,21 @@ export function CoursePage({ id, initial }: { id: string; initial: CourseView })
 							</div>
 
 							{hasPlan && !replanning && (
-								<div className="mt-10">
-									<DayStrip goal={goal} today={course.today} selected={shown?.id ?? null} onSelect={setSession} />
-								</div>
+								<>
+									<div className="mt-10">
+										<DayStrip goal={goal} today={course.today} selected={shown?.id ?? null} onSelect={setSession} />
+									</div>
+									<PlanView
+										course={course}
+										goal={goal}
+										index={index}
+										mastery={mastery}
+										adopt={adopt}
+										onPick={setSession}
+										onChanged={() => setSession(null)}
+										onNeedsModels={() => setSetupOpen(true)}
+									/>
+								</>
 							)}
 						</>
 					)}
@@ -341,11 +354,6 @@ function NextStep({
 				{!done && <span className="font-ui text-sm text-muted-foreground">{duration(shown.minutes)}</span>}
 				{!done && shown.chatId && <LinkButton onClick={() => onCompleteSession(shown)} disabled={busy}>Mark done</LinkButton>}
 			</div>
-			{goal.plan?.neededMinutesPerDay && (
-				<p className="mt-4 max-w-[34rem] font-ui text-sm text-muted-foreground">
-					Covering everything by {dayMonth(goal.date)} takes about {duration(goal.plan.neededMinutesPerDay)} each study day.
-				</p>
-			)}
 		</div>
 	);
 }

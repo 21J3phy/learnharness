@@ -3,6 +3,7 @@
 import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import katex from "katex";
 import { MoreHorizontalIcon } from "lucide-react";
+import { MessageResponse } from "@/components/ai-elements/message";
 import { SidebarToggle } from "@/components/sidebar";
 import { cn } from "@/lib/utils";
 import { daysBetween, type Knowledge, type MasteryState } from "@/src/core";
@@ -175,6 +176,16 @@ export const Tex = memo(function Tex({ children }: { children: string }) {
 	);
 });
 
+/**
+ * A passage of Markdown with LaTeX: a question, an option, a summary.
+ * Keyed on its text because the renderer keeps a paragraph whose source
+ * span is unchanged — a new text of the same length in the same place would
+ * go on showing the old one.
+ */
+export function Md({ children }: { children: string }) {
+	return <MessageResponse key={children}>{children}</MessageResponse>;
+}
+
 // ─── the knowledge meter ─────────────────────────────────────────────────────
 
 /** The estimate's history as a quiet line: how the meter has moved as
@@ -215,7 +226,7 @@ export function Meter({ knowledge, of, size = "large", className }: {
 					<span className={cn("font-title leading-none tabular-nums", size === "large" ? "text-[68px]" : "text-[36px]", !measured && "text-muted-foreground/50")}>
 						{measured ? percent : "–"}<span className={cn(size === "large" ? "text-[34px]" : "text-[20px]")}>%</span>
 					</span>
-					<span className="font-ui text-sm text-muted-foreground">{measured ? `of ${of} known` : "not measured yet"}</span>
+					<span className="font-ui text-sm text-muted-foreground">{measured ? `of ${of} known, by estimate` : "not measured yet"}</span>
 				</p>
 				{size === "large" && <Trace knowledge={knowledge} className="mb-1 shrink-0" />}
 			</div>

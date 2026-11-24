@@ -16,6 +16,7 @@ import { Type } from "typebox";
 import type { Usage } from "@earendil-works/pi-ai";
 import type { PiEngine } from "../models.ts";
 import { runSubmitAgent } from "./submit-agent.ts";
+import { serverExecute } from "../tool-execute.ts";
 import { CONCEPT_KINDS, GOAL_KINDS, isDay, type ConceptKind, type GoalKind } from "../../core/course.ts";
 
 type OnUsage = (usage: Usage) => void;
@@ -402,4 +403,152 @@ export async function writeQuestions(opts: {
 	const first = new Map<string, WrittenQuestion>();
 	for (const q of result.questions) if (!first.has(q.conceptId)) first.set(q.conceptId, q);
 	return opts.concepts.flatMap((c) => (first.has(c.id) ? [first.get(c.id)!] : []));
+}
+
+// ─── discussPlan ─────────────────────────────────────────────────────────────
+
+/** The plan settings a conversation may change. A field left out stays as it is. */
+export interface PlanChange {
+	minutesPerDay?: number;
+	weekdays?: number[];
+	/** Every date with its own time (0 = a day off). Replaces the list. */
+	days?: { date: string; minutes: number }[];
+	prerequisites?: boolean;
+	/** Every concept left out at the learner's word. Replaces the list. */
+	skip?: string[];
+	practice?: boolean;
+}
+
+export interface PlanReply {
+	reply: string;
+	change?: PlanChange;
+}
+
+const changeSchema = Type.Object({
+	minutesPerDay: Type.Optional(Type.Number({ description: "Study time on an ordinary study day, in minutes (10–480)." })),
+	weekdays: Type.Optional(Type.Array(Type.Number(), { description: "The days of the week they study: 0 = Sunday … 6 = Saturday." })),
+	days: Type.Optional(Type.Array(
+		Type.Object({ date: Type.String({ description: "YYYY-MM-DD" }), minutes: Type.Number({ description: "Minutes that day. 0 = a day off." }) }),
+		{ description: "EVERY date that has its own time, including ones already set that should stay. A date left out goes back to the ordinary rule." },
+	)),
+	prerequisites: Type.Optional(Type.Boolean({ description: "Also teach earlier concepts the exam's material rests on, when there is time." })),
+	skip: Type.Optional(Type.Array(Type.String(), { description: "The ids of EVERY concept to leave out, including ones already left out that should stay out. Copy ids exactly." })),
+	practice: Type.Optional(Type.Boolean({ description: "Hold the last days for a practice exam." })),
+});
+
+const replySchema = Type.Object({
+	reply: Type.String({ description: "What you say to the student." }),
+	change: Type.Optional(changeSchema),
+});
+
+const PLAN_SYSTEM = `You help a student with their study plan for one exam. They ask questions about the plan, or ask you to change it. Below you are given the plan as it stands, how it was made, and where the student stands.
+
+The plan is laid out by a planner, not by you. You change the plan only by changing its settings; the planner then lays everything out again. The settings:
+- minutesPerDay: study time on an ordinary study day.
+- weekdays: which days of the week they study.
+- days: particular dates with their own time. 0 makes that date a day off; a larger number makes it a longer day.
+- prerequisites: whether the plan also teaches earlier concepts that the exam's material rests on, when there is time for them.
+- skip: concepts to leave out because the student says they already know them or does not want them.
+- practice: whether the last days are held back for a practice exam.
+
+The planner always keeps to the student's time. When everything does not fit, it gives way in this order: the practice exam's day goes back to learning; earlier concepts the exam only rests on are left out; the exam's own concepts get a quicker pass (less time each); and last, some of the exam's own concepts are left out. Concepts are always taught prerequisites first, and a concept the student already holds solidly is never scheduled.
+
+Nothing else can be changed from here. You cannot reorder concepts, put a chosen concept on a chosen day, edit what a session contains, add a session by hand, or change the exam's date or what it covers. When asked for one of these, say plainly that it cannot be done here, and offer the nearest thing the settings can do.
+
+How to work:
+- To answer a question, read the plan below and say what is true of it, with its dates and numbers.
+- Never guess what the planner would produce. Call try_plan with settings to see the plan they give. Call it before you make any change, and for every "what if". You may call it several times to compare.
+- When the student asks for a change, pass the settings as "change" when you call reply. The plan is rebuilt with them at once, so describe the plan try_plan showed you for those same settings.
+- When the student only asks what would happen, leave "change" out and tell them what try_plan showed. Offer to make the change.
+- If the request leaves out something that decides the outcome (which day, how much time), ask one short question and change nothing.
+- A change is only the fields that differ. For "days" and "skip", give the complete new list, keeping the entries already there unless the student wants them gone.
+
+How to write the reply:
+- A few plain sentences, under about 120 words unless they ask for detail. Lead with the answer or with what changed.
+- The student can see the whole plan on the page next to this conversation. Don't list every day's sessions unless they ask for the schedule; say what is different and what it costs or buys.
+- After a change, say what it did to the plan: which days moved, and anything it newly leaves out or newly fits in.
+- Write dates the way a person would ("Thu Nov 26"), and times as "2 h" or "45 min".
+- No headings, no bold. A short list is fine when listing days or sessions.
+- Never mention settings by their names, the planner's internals, concept ids, or your tools.
+- Be straight about bad news. If the time is not enough for the material, say so and say what would fix it.
+
+Your words reach the student only through the reply call, so always finish by calling reply exactly once — after try_plan too. Text written outside it is not a change to the plan.`;
+
+/**
+ * One turn of the conversation about a plan. The agent can try settings
+ * against the planner (`preview`) as often as it likes; the change it
+ * returns is applied by the caller.
+ */
+export async function discussPlan(opts: {
+	engine: PiEngine;
+	/** The plan as it stands, with everything the agent may need to answer. */
+	brief: string;
+	history: readonly { role: "user" | "assistant"; text: string }[];
+	message: string;
+	/** The plan a change would give, described the way `brief` describes the current one. Throws a readable message for settings that cannot be used. */
+	preview: (change: PlanChange) => string;
+	signal?: AbortSignal;
+	onUsage?: OnUsage;
+}): Promise<PlanReply> {
+	const changeOf = (input: unknown): PlanChange | undefined => {
+		if (!input || typeof input !== "object") return undefined;
+		const raw = input as Record<string, unknown>;
+		const change: PlanChange = {
+			...(int(raw.minutesPerDay) !== undefined ? { minutesPerDay: int(raw.minutesPerDay)! } : {}),
+			...(Array.isArray(raw.weekdays) ? { weekdays: raw.weekdays.map(int).filter((n): n is number => n !== undefined) } : {}),
+			...(Array.isArray(raw.days) ? { days: raw.days.flatMap((d: Record<string, unknown>) => (isDay(text(d?.date)) && int(d?.minutes) !== undefined ? [{ date: text(d.date), minutes: int(d.minutes)! }] : [])) } : {}),
+			...(typeof raw.prerequisites === "boolean" ? { prerequisites: raw.prerequisites } : {}),
+			...(Array.isArray(raw.skip) ? { skip: raw.skip.map(text).filter(Boolean) } : {}),
+			...(typeof raw.practice === "boolean" ? { practice: raw.practice } : {}),
+		};
+		return Object.keys(change).length > 0 ? change : undefined;
+	};
+	const attempt = (change: PlanChange | undefined): string => {
+		try { return opts.preview(change ?? {}); } catch (error) { return `CANNOT USE THESE SETTINGS: ${error instanceof Error ? error.message : "they are not valid"}`; }
+	};
+	return runSubmitAgent<PlanReply>({
+		role: "teacher",
+		engine: opts.engine,
+		toolName: "reply",
+		toolDescription: "Answer the student, and change the plan's settings when they asked for a change.",
+		parameters: replySchema,
+		fill: (input) => {
+			const change = changeOf(input.change);
+			return { reply: text(input.reply), ...(change ? { change } : {}) };
+		},
+		validate: ({ reply, change }) => {
+			if (!reply) return "reply is empty — say something to the student";
+			if (change) {
+				const result = attempt(change);
+				if (result.startsWith("CANNOT USE THESE SETTINGS")) return result;
+			}
+			return null;
+		},
+		extraTools: {
+			try_plan: {
+				name: "try_plan",
+				label: "try_plan",
+				description: "See the plan that settings would give, without changing anything. Pass only the fields that differ from the current settings.",
+				parameters: changeSchema,
+				execute: serverExecute("try_plan", changeSchema, (input) => attempt(changeOf(input))),
+			},
+		},
+		systemPrompt: PLAN_SYSTEM,
+		prompt: [
+			opts.brief,
+			"",
+			...(opts.history.length > 0
+				? ["<conversation_so_far>", ...opts.history.map((m) => `${m.role === "user" ? "Student" : "You"}: ${m.text}`), "</conversation_so_far>", ""]
+				: []),
+			"<student_message>",
+			opts.message,
+			"</student_message>",
+		].join("\n"),
+		signal: opts.signal,
+		maxTurns: 10,
+		onStep: (usage) => opts.onUsage?.(usage),
+		neverSubmitted: "The model did not answer.",
+		// A plain-text answer is still an answer (it changes nothing).
+		fromText: (answer) => (answer.trim() ? { reply: answer.trim() } : undefined),
+	});
 }

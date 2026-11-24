@@ -1,11 +1,10 @@
 "use client";
 
 import { XIcon } from "lucide-react";
-import { MessageResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
 import type { CourseIndex, Evidence, Mastery } from "@/src/core";
 import type { CourseView } from "./api";
-import { ErrorNote, Hl, QuietButton, Tex, dayMonth } from "./parts";
+import { ErrorNote, Hl, Md, QuietButton, Tex, dayMonth } from "./parts";
 
 const STATE_LINE: Record<Mastery["state"], string> = {
 	solid: "You hold this.",
@@ -66,7 +65,7 @@ export function ConceptDetail({
 			</div>
 
 			<div className="flex-1 space-y-7 overflow-y-auto px-6 pb-8 pt-3">
-				<div className="text-[15px]"><MessageResponse>{concept.summary}</MessageResponse></div>
+				<div className="text-[15px]"><Md>{concept.summary}</Md></div>
 
 				<section>
 					<p className="font-ui text-[15px]">

@@ -28,12 +28,23 @@ This fork adds one layer on top of LearnHarness: a **course** built from your ow
 ## The screens
 
 - **Home** is what today asks for. Each course shows its meter and its next step, in the order of the flow above: add material, set a goal, take the diagnostic, build the plan, then the session that is due. A due session starts from here in one click. Courses are listed by urgency: a session due today first, then the nearest exam.
-- **A course** leads with the goal's meter and the one next step, then the days up to the exam, then the map.
+- **A course** leads with the goal's meter and the one next step, then the days up to the exam, then the plan by unit with its conversation, then the map.
 - **The map** has two levels. Each unit is one line with how much of it you hold; opening a unit shows its concepts in teaching order. A short course starts fully open; a long one opens at the unit of the session that is due. Pointing at a concept draws what it rests on and what it leads to, and a link into a closed unit ends at that unit's line.
 - **The sidebar** is organised by course. A course's study sessions sit under it while you are in the course; chats started outside any course come after, under "Other chats". Search covers every session.
 - **A session's chat** names its course before the title (the way back), and shows how many of the session's concepts have been checked next to the goal's meter.
 
 A learning session of three or more concepts is named after its unit, numbered when the unit runs over several sessions ("Determinants, part 2"); the course page lists the concepts underneath.
+
+## The plan
+
+The planner is deterministic: the same settings and the same evidence always give the same plan, so it can be rebuilt at any time.
+
+- **Your time is kept to.** A session is never longer than the time you gave for its day. When the material does not fit, the plan gives way in this order and says what it gave up: the practice exam's day goes back to learning; the earlier concepts the goal only rests on are left out, the likeliest-known first; the goal's own concepts get a quicker pass (down to 60% of the usual 20 minutes for a new concept, 10 for one that is partly there); and last, the concepts the least is built on are left out. The course page shows what was left out and how much time a day covering all of it would take.
+- **Settings.** Minutes on an ordinary study day and the days of the week; particular dates with their own time (a day off, a longer day); whether earlier concepts are taught at all; concepts left out at your word; whether the last days are held for a practice exam. The first two are set when the plan is built. The rest are set by talking to the plan.
+- **By unit.** Under the row of days, each unit the goal covers is listed with the days the plan spends on it and how many of its concepts are solid. An earlier unit is listed only while the plan spends time on it. Picking a unit shows its session.
+- **Talking to the plan.** The box under the units takes a question ("what got left out, and why?", "what if I had 3 hours a day?") or a change ("I can't study on Thursday"). The model sees the plan and where you stand, can try settings against the planner without saving them, and can change only the settings above; the planner lays the plan out again. It cannot reorder concepts, edit a session by hand, or move the exam. The conversation is kept on the goal.
+- **Calendar.** "Copy a prompt for your calendar" copies a message for an assistant that has access to your calendar: every session still to do with its date, length, title and contents, the exam, and instructions not to disturb what is already there.
+- A session already begun keeps its chat when the plan is rebuilt, if the new plan has a session of the same kind that day.
 
 ## The knowledge meter
 
@@ -41,7 +52,9 @@ The meter is the share of a goal's concepts you are estimated to hold. It is der
 
 - Every graded answer is one piece of **evidence** on one concept: a diagnostic question, a check in a teaching session, or your own "mark done" (which counts for half).
 - A right answer lifts that concept and, more weakly and fading with distance, the concepts it rests on. A wrong answer drops it and, fading the same way, what is built on it. One right answer alone never marks a prerequisite as solid; it takes a second supporting answer or a direct one.
-- The meter is the mean estimate over the goal's concepts, and its history is the estimate after each answer. The diagnostic sets it; every later check refines it. A session's chat shows it in the header and re-reads it whenever a turn settles.
+- Each concept's estimate is read twice. From the evidence alone, every concept starting from the same prior: that reading decides its state (solid, shaky, new, untested), what the diagnostic asks next and what the plan covers. And against **your own level**: the share of diagnostic questions you got right in that concept's unit, drawn towards your rate over the whole course when the unit has few answers. Someone who answers everything right probably knows the concepts the diagnostic did not reach, and someone who knows none of it probably does not. Only diagnostic answers set that level; an answer in a teaching session follows the teaching, so it says nothing about the concepts beside it.
+- The meter is the mean of the second reading over the goal's concepts, and its history is that mean after each answer. The diagnostic sets it; every later check refines it. A session's chat shows it in the header and re-reads it whenever a turn settles.
+- It is an estimate. Checked against simulated learners whose knowledge is known (`tests/course-core.test.ts`), it lands within about ten points on average: near zero for someone who knows none of the material, near 90% for someone who knows all of it (a slip now and then keeps it off 100%). It cannot tell a lucky guess from knowledge, so picking at random instead of "I don't know" reads higher than it should.
 
 Checks in a session are traced to concepts through the lesson plan: the teacher is told to use concept ids as plan node ids, and a check names the node it is about.
 
@@ -51,10 +64,10 @@ Checks in a session are traced to concepts through the lesson plan: the teacher 
 | --- | --- |
 | Record shapes and the pure logic (graph, mastery, meter, diagnostic choice, planner) | `src/core/course.ts` |
 | Storage: `<data>/courses/<id>/course.json` and `sources/<sid>.json` | `src/store/courses.ts` |
-| The three model agents: read a part, organize the course, write questions | `src/agent/subagents/course-agents.ts` |
+| The model agents: read a part, organize the course, write questions, talk about the plan | `src/agent/subagents/course-agents.ts` |
 | Reading a dropped file into pages of text (PDF, PowerPoint, Word, EPUB, HTML, text) | `src/server/course-files.ts` |
 | The readable kinds, the limits, and the reason given for each unreadable kind | `lib/course-limits.ts` |
-| The service: build, goals, diagnostic, plan, sessions, evidence sync | `src/server/courses.ts` |
+| The service: build, goals, diagnostic, plan, the plan conversation, sessions, evidence sync | `src/server/courses.ts` |
 | Routes | `app/api/courses/**`, `app/api/chats/[id]/course` |
 | Screens | `components/course/**`, `app/page.tsx`, `app/course/[id]/page.tsx`, the course groups in `components/sidebar.tsx` |
 | Tests for the pure logic | `tests/course-core.test.ts` |

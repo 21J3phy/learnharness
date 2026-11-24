@@ -15,12 +15,14 @@
 import type { Usage } from "@earendil-works/pi-ai";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
 import {
+	discussPlan,
 	organizeCourse,
 	readPart,
 	writeQuestions,
 	type FoundAssessment,
 	type FoundConcept,
 	type OrganizeInput,
+	type PlanChange,
 	type QuestionInput,
 } from "../agent/subagents/course-agents.ts";
 import {
@@ -39,6 +41,7 @@ import {
 	masteryOf,
 	nextDiagnosticConcept,
 	overdueSessions,
+	planOutline,
 	publicCourse,
 	slugify,
 	summarizeCourse,
@@ -54,6 +57,8 @@ import {
 	type Goal,
 	type GoalKind,
 	type Mastery,
+	type Plan,
+	type PlanMessage,
 	type PlanPrefs,
 	type PlanSession,
 	type SkippedFile,
@@ -133,6 +138,8 @@ async function pool<T, R>(items: readonly T[], width: number, work: (item: T, in
 interface CourseRuns {
 	builds: Map<string, AbortController>;
 	diagnostics: Map<string, AbortController>;
+	/** Goals whose plan conversation has a turn in flight. */
+	planChats?: Set<string>;
 }
 const runs = (): CourseRuns => {
 	const g = globalThis as { __lhCourseRuns?: CourseRuns };
@@ -672,20 +679,178 @@ export function finishDiagnostic(courseId: string, goalId: string): CourseView {
 
 // ─── the plan ────────────────────────────────────────────────────────────────
 
-function cleanPrefs(input: unknown, base: PlanPrefs): PlanPrefs {
-	const raw = (input ?? {}) as { minutesPerDay?: unknown; weekdays?: unknown };
-	const minutes = typeof raw.minutesPerDay === "number" && Number.isFinite(raw.minutesPerDay) ? Math.min(480, Math.max(10, Math.round(raw.minutesPerDay))) : base.minutesPerDay;
+/** The learner's plan settings from a request body, over the ones in force. */
+function cleanPrefs(input: unknown, base: PlanPrefs, course: Pick<Course, "concepts">): PlanPrefs {
+	const raw = (input ?? {}) as Record<string, unknown>;
+	const whole = (value: unknown): number | undefined => (typeof value === "number" && Number.isFinite(value) ? Math.round(value) : undefined);
+	const minutes = whole(raw.minutesPerDay) !== undefined ? Math.min(480, Math.max(10, whole(raw.minutesPerDay)!)) : base.minutesPerDay;
 	const weekdays = Array.isArray(raw.weekdays) ? [...new Set(raw.weekdays.filter((d): d is number => Number.isInteger(d) && d >= 0 && d <= 6))].sort() : base.weekdays;
-	return { minutesPerDay: minutes, weekdays: weekdays.length > 0 ? weekdays : base.weekdays };
+	// Days come as a record, or as the list a model finds easier to write.
+	const listed: [string, unknown][] | undefined = Array.isArray(raw.days)
+		? raw.days.map((d: { date?: unknown; minutes?: unknown }) => [String(d?.date), d?.minutes])
+		: raw.days && typeof raw.days === "object" ? Object.entries(raw.days) : undefined;
+	const days = listed
+		? Object.fromEntries(listed.filter(([day, m]) => isDay(day) && whole(m) !== undefined).slice(0, 120).map(([day, m]) => [day, Math.min(720, Math.max(0, whole(m)!))]))
+		: base.days;
+	const known = new Set(course.concepts.map((c) => c.id));
+	const skip = Array.isArray(raw.skip) ? [...new Set(raw.skip.filter((id): id is string => typeof id === "string" && known.has(id)))] : base.skip;
+	const prerequisites = typeof raw.prerequisites === "boolean" ? raw.prerequisites : base.prerequisites;
+	const practice = typeof raw.practice === "boolean" ? raw.practice : base.practice;
+	return {
+		minutesPerDay: minutes,
+		weekdays: weekdays.length > 0 ? weekdays : base.weekdays,
+		...(days && Object.keys(days).length > 0 ? { days } : {}),
+		...(prerequisites === false ? { prerequisites: false } : {}),
+		...(skip && skip.length > 0 ? { skip } : {}),
+		...(practice === false ? { practice: false } : {}),
+	};
 }
 
 export function planGoal(courseId: string, goalId: string, prefs?: unknown): CourseView {
 	mustGoal(mustGet(courseId), goalId);
 	const course = courseStore.update(courseId, (c) => {
 		const goal = c.goals.find((g) => g.id === goalId)!;
-		goal.plan = buildPlan(c, goal, today(), cleanPrefs(prefs, goal.plan?.prefs ?? DEFAULT_PLAN_PREFS));
+		goal.plan = buildPlan(c, goal, today(), cleanPrefs(prefs, goal.plan?.prefs ?? DEFAULT_PLAN_PREFS, c));
 	})!;
 	return viewOf(course);
+}
+
+// ─── talking about the plan ──────────────────────────────────────────────────
+
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const spoken = (day: string) => `${day} (${WEEKDAY_NAMES[new Date(`${day}T00:00:00Z`).getUTCDay()]!.slice(0, 3)})`;
+const MAX_PLAN_MESSAGE = 2000;
+const PLAN_CHAT_KEPT = 60;
+
+/** A plan in words: its settings, its sessions, and what it gave up. */
+function describePlan(course: Course, goal: Goal, plan: Plan): string {
+	const index = indexCourse(course);
+	const title = (id: string) => index.byId.get(id)?.title ?? id;
+	const scope = goalScope(course, goal, index);
+	const core = new Set(scope.core);
+	const { prefs } = plan;
+	const left = plan.left ?? [];
+	const leftOwn = left.filter((id) => core.has(id));
+	const leftEarlier = left.filter((id) => !core.has(id));
+	const upcoming = plan.sessions.filter((s) => s.status === "upcoming");
+	const minutes = upcoming.reduce((sum, s) => sum + s.minutes, 0);
+	return [
+		"Settings:",
+		`- ${prefs.minutesPerDay} minutes on an ordinary study day; study days: ${prefs.weekdays.map((d) => WEEKDAY_NAMES[d]).join(", ")}`,
+		`- dates with their own time: ${Object.entries(prefs.days ?? {}).map(([day, m]) => `${spoken(day)} = ${m === 0 ? "day off" : `${m} min`}`).join("; ") || "none"}`,
+		`- earlier concepts the exam rests on: ${prefs.prerequisites === false ? "never taught" : "taught when there is time"}`,
+		`- practice exam at the end: ${prefs.practice === false ? "off" : "on, when there are at least six study days"}`,
+		`- left out at the student's word: ${(prefs.skip ?? []).map((id) => `${title(id)} [${id}]`).join("; ") || "nothing"}`,
+		"",
+		`Sessions still to do (${upcoming.length}, ${minutes} minutes in all):`,
+		...(upcoming.length > 0 ? upcoming.map((s) => `- ${spoken(s.date)}, ${s.minutes} min, ${s.kind === "learn" ? "learning" : s.kind === "practice" ? "practice exam" : "review"}: "${s.title}"${s.chatId ? " (already begun)" : ""}${s.kind === "learn" ? ` — ${s.conceptIds.map(title).join("; ")}` : ""}`) : ["- none"]),
+		...plan.sessions.filter((s) => s.status === "done").map((s) => `- done on ${spoken(s.date)}: "${s.title}"`),
+		"",
+		plan.pace ? `Pace: time is short, so each concept gets a quicker pass: about ${Math.round(20 * plan.pace)} minutes for a new concept instead of the usual 20, and about ${Math.round(10 * plan.pace)} instead of 10 for one that is partly there.` : "Pace: every concept gets its usual time (20 minutes when new, 10 when partly there).",
+		plan.neededMinutesPerDay ? `Covering everything at the usual pace, with the last days kept for practice and review, would take about ${plan.neededMinutesPerDay} minutes on every study day.` : "Everything the plan set out to cover fits in the time given.",
+		`Left out for lack of time, from what the exam itself covers (${leftOwn.length}): ${leftOwn.map(title).join("; ") || "nothing"}`,
+		`Left out for lack of time, from the earlier concepts it rests on (${leftEarlier.length}): ${leftEarlier.map(title).join("; ") || "nothing"}`,
+	].join("\n");
+}
+
+/** Everything the plan conversation is told: where the learner stands, the plan, and the concepts by id. */
+function planBrief(course: Course, goal: Goal, plan: Plan): string {
+	const index = indexCourse(course);
+	const mastery = masteryOf(course, index);
+	const scope = goalScope(course, goal, index);
+	const day = today();
+	const knowledge = knowledgeOf(course, scope.core, index);
+	const unitTitle = new Map(course.units.map((u) => [u.id, u.title]));
+	const line = (id: string) => {
+		const c = index.byId.get(id)!;
+		const m = mastery.get(id)!;
+		return `- [${id}] ${c.title} (${unitTitle.get(c.unitId) ?? ""}) — ${m.state === "untested" ? "not tested" : m.state}`;
+	};
+	return [
+		`Course: ${course.title}`,
+		`Exam: ${goal.title}, on ${spoken(goal.date)}. Today is ${spoken(day)}: ${daysBetween(day, goal.date)} days to go.`,
+		`It covers ${scope.core.length} concepts and rests on ${scope.assumed.length} earlier ones.`,
+		knowledge.value === null
+			? "The student has not been measured yet: no diagnostic answers."
+			: `Estimated share of the exam's concepts the student already knows: ${Math.round(knowledge.value * 100)}% (from ${knowledge.answers} answers).`,
+		"",
+		"<plan>",
+		describePlan(course, goal, plan),
+		"</plan>",
+		"",
+		"<by_unit>",
+		...planOutline(course, goal, index, mastery).map((u) => `- ${u.title}${u.role === "earlier" ? " (earlier material)" : ""}: ${u.from ? (u.from === u.to ? spoken(u.from) : `${spoken(u.from)} to ${spoken(u.to!)}`) : "not in the plan"}; ${u.solid} of ${u.concepts} concepts solid${u.left > 0 ? `; ${u.left} left out` : ""}`),
+		"</by_unit>",
+		"",
+		"<concepts the exam covers>",
+		...scope.core.map(line),
+		"</concepts the exam covers>",
+		"",
+		"<earlier concepts it rests on>",
+		...scope.assumed.map(line),
+		"</earlier concepts it rests on>",
+	].join("\n");
+}
+
+/**
+ * One turn of the conversation about a goal's plan: a question answered,
+ * or the plan's settings changed and the plan laid out again.
+ */
+export async function talkAboutPlan(courseId: string, goalId: string, input: unknown): Promise<CourseView> {
+	const message = typeof input === "string" ? input.trim() : "";
+	if (!message) throw new CourseError("Write a question or a change first.");
+	if (message.length > MAX_PLAN_MESSAGE) throw new CourseError("That message is too long. Keep it under 2,000 characters.");
+	const before = mustGet(courseId);
+	const goal = mustGoal(before, goalId);
+	const plan = goal.plan;
+	if (!plan) throw new CourseError("Build the plan first.", 409, "no_plan");
+	let engine: PiEngine;
+	try { engine = engineFor("strong"); } catch (error) {
+		const failure = failureOf(error);
+		throw new CourseError(failure.error, 503, failure.code);
+	}
+	const key = `${courseId}:${goalId}`;
+	const busy = (runs().planChats ??= new Set());
+	if (busy.has(key)) throw new CourseError("The last message is still being answered.", 409, "busy");
+	busy.add(key);
+	try {
+		const day = today();
+		const merged = (change: PlanChange) => cleanPrefs(change, plan.prefs, before);
+		const unknown = (change: PlanChange) => (change.skip ?? []).filter((id) => !before.concepts.some((c) => c.id === id));
+		const result = await discussPlan({
+			engine,
+			brief: planBrief(before, goal, plan),
+			history: (goal.planChat ?? []).slice(-12).map(({ role, text }) => ({ role, text })),
+			message,
+			preview: (change) => {
+				const wrong = unknown(change);
+				if (wrong.length > 0) throw new Error(`no concept has the id ${wrong.map((id) => `"${id}"`).join(", ")} — copy ids exactly from the lists`);
+				return describePlan(before, goal, buildPlan(before, goal, day, merged(change)));
+			},
+		});
+		const at = new Date().toISOString();
+		const course = courseStore.update(courseId, (c) => {
+			const g = c.goals.find((x) => x.id === goalId);
+			if (!g?.plan) return;
+			let changed = false;
+			if (result.change) {
+				const prefs = cleanPrefs(result.change, g.plan.prefs, c);
+				changed = JSON.stringify(prefs) !== JSON.stringify(g.plan.prefs);
+				if (changed) g.plan = buildPlan(c, g, today(), prefs);
+			}
+			const turn: PlanMessage[] = [{ role: "user", text: message, at }, { role: "assistant", text: result.reply, at, ...(changed ? { changed: true } : {}) }];
+			g.planChat = [...(g.planChat ?? []), ...turn].slice(-PLAN_CHAT_KEPT);
+		});
+		if (!course) throw new CourseError("That course no longer exists.", 404, "not_found");
+		return viewOf(course);
+	} catch (error) {
+		if (error instanceof CourseError) throw error;
+		console.error(`[course ${courseId}] plan conversation failed:`, error);
+		const failure = failureOf(error);
+		throw new CourseError(failure.code ? failure.error : "The answer didn't come through. Try again.", 502, failure.code);
+	} finally {
+		busy.delete(key);
+	}
 }
 
 // ─── teaching sessions ───────────────────────────────────────────────────────
