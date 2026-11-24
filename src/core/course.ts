@@ -1075,6 +1075,56 @@ export function currentSession(plan: Plan | undefined, today: string): PlanSessi
 	return upcoming.find((s) => s.date === today) ?? upcoming.find((s) => s.date > today) ?? upcoming[0];
 }
 
+// ─── a session's pace ────────────────────────────────────────────────────────
+
+/** A pause longer than this is a break, not study. */
+const IDLE_MS = 8 * 60_000;
+
+/**
+ * The minutes actually studied in a chat: the time between its messages,
+ * with any pause longer than a few minutes counted only up to that length —
+ * so a session left open over lunch is not an hour behind.
+ */
+export function studiedMinutes(timestamps: readonly number[], now: number): number {
+	const times = timestamps.filter((t) => Number.isFinite(t) && t > 0 && t <= now).sort((a, b) => a - b);
+	if (times.length === 0) return 0;
+	let ms = Math.min(now - times.at(-1)!, IDLE_MS);
+	for (let i = 1; i < times.length; i++) ms += Math.min(times[i]! - times[i - 1]!, IDLE_MS);
+	return Math.round(ms / 60_000);
+}
+
+export interface SessionPace {
+	/** The session's planned length, and the minutes studied so far. */
+	minutes: number;
+	spent: number;
+	concepts: number;
+	/** Concepts with at least one graded check in this session. */
+	checked: number;
+	/** The plan's minutes per concept. */
+	perConcept: number;
+	/** Minutes ahead of the plan's pace (negative: behind). */
+	lead: number;
+	/** Where that leaves the session. Being part-way through a concept is not "behind". */
+	standing: "ahead" | "on pace" | "behind" | "over time" | "done";
+	/** Minutes left in the planned time for each concept still to go (0 once the time is used up). */
+	leftPerConcept: number;
+}
+
+/** How a session is going against the time its plan gave it. */
+export function sessionPace(session: Pick<PlanSession, "minutes" | "conceptIds">, checked: number, spent: number): SessionPace {
+	const concepts = session.conceptIds.length;
+	const perConcept = concepts > 0 ? session.minutes / concepts : session.minutes;
+	const done = Math.min(checked, concepts);
+	const lead = Math.round(done * perConcept - spent);
+	const togo = concepts - done;
+	const standing = concepts > 0 && togo === 0 ? "done"
+		: spent >= session.minutes ? "over time"
+		: lead < -perConcept ? "behind"
+		: lead > perConcept / 2 ? "ahead"
+		: "on pace";
+	return { minutes: session.minutes, spent, concepts, checked: done, perConcept, lead, standing, leftPerConcept: togo > 0 ? Math.max(0, Math.round((session.minutes - spent) / togo)) : 0 };
+}
+
 // ─── evidence from a teaching session ────────────────────────────────────────
 
 /** The slice of a chat record the fold reads (native message shapes). */

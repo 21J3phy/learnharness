@@ -37,13 +37,16 @@ import {
 	goalScope,
 	indexCourse,
 	isDay,
+	isScheduled,
 	knowledgeOf,
 	masteryOf,
 	nextDiagnosticConcept,
 	overdueSessions,
 	planOutline,
 	publicCourse,
+	sessionPace,
 	slugify,
+	studiedMinutes,
 	summarizeCourse,
 	uniqueSlug,
 	GOAL_KINDS,
@@ -940,6 +943,7 @@ function seedSession(course: Course, goal: Goal, session: PlanSession, engine: P
 		"- His level on each concept is already known from his diagnostic and earlier sessions — it is recorded in the assessment below. Do not probe again; plan from it.",
 		"- In plan_init, give each node that teaches one of the concepts above that concept's id as its node id (e.g. the node for [" + (targets[0]?.id ?? "concept-id") + "] has the id " + (targets[0]?.id ?? "concept-id") + "). His progress in the course is tracked through the checks you tag with those ids. Add other nodes freely.",
 		"- Teach from his own material: use its definitions and notation. Excerpts follow.",
+		"- The session has a planned length. Read session_clock before you begin and each time you move to a new concept, and keep to its pace.",
 		"- He opened this session to study, and its scope is already agreed. Author the plan, show it in a sentence or two, and begin teaching the first concept in the same turn — do not stop to ask whether the plan is acceptable.",
 		...(material.length > 0 ? ["", ...material] : []),
 	].join("\n");
@@ -1146,6 +1150,114 @@ export function courseLinkForChat(chatId: string): ChatCourseLink | null {
 		}
 	}
 	return null;
+}
+
+// ─── a session's clock ───────────────────────────────────────────────────────
+
+/** The plan session a chat belongs to, without syncing anything. */
+function sessionOfChat(chatId: string): { course: Course; goal: Goal; session: PlanSession } | null {
+	for (const course of courseStore.list()) {
+		for (const goal of course.goals) {
+			const session = goal.plan?.sessions.find((s) => s.chatId === chatId);
+			if (session) return { course, goal, session };
+		}
+	}
+	return null;
+}
+
+/** Is this chat a session of someone's study plan? */
+export function isCourseSession(chatId: string): boolean {
+	return sessionOfChat(chatId) !== null;
+}
+
+/**
+ * The standing instruction for a plan session's teacher: there is a clock,
+ * when to read it, and what keeping pace means. It carries no dates or
+ * numbers of its own — those change, and the clock has them.
+ */
+export const SESSION_PACE_GUIDANCE = `## This chat is one session of a dated study plan
+
+The learner is studying for an exam on a fixed date. Their plan gives this session a set amount of time for a set list of concepts, and the sessions after it are already full. What this session does not reach has no other place in the plan. Keeping to time is part of teaching well here.
+
+You have a tool, session_clock. It tells you the date and time, how long the learner has studied in this session, how many of its concepts have been checked, whether the session is ahead or behind, and what the plan holds for the days ahead. You do not know the date or the time unless you call it: never state or assume either from memory.
+
+Call session_clock:
+- at the start of your first turn in this session, and again whenever the learner comes back after a break;
+- each time you finish one concept and are about to start the next;
+- whenever the learner asks about time, dates, the schedule, the exam, or how they are doing.
+
+Keep the session on pace:
+- When it is on pace, teach as you normally would.
+- When it is behind, tighten up: shorter explanations, one worked example instead of two, straight to the check. Lean on what the learner already holds. Drop enrichment and side paths. Never drop the check on a concept; an unchecked concept does not count as covered.
+- When it is well ahead, spend the spare time where the learner is weakest: a harder check, or a second problem on the concept they found shakiest.
+- If it becomes clear the session cannot cover everything in its time, say so as soon as you know, in a sentence, and propose what to do: which of the remaining concepts to take quickly and which to leave. The learner decides. They can change the plan from the course page.
+- When the planned time is used up, stop at the next natural break: say what was covered, name what was not, and ask whether they want to keep going.
+
+Tell the learner where they stand, briefly. When you move to a new concept, one clause is enough ("that's 3 of 9 in 40 minutes, right on pace"). Do not mention the time more than once per concept, and never as a scolding. If they ask about the schedule, answer from session_clock, with real dates.`;
+
+const clockTime = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+const clockHour = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
+const minutesWords = (minutes: number) => (minutes < 60 ? `${minutes} min` : minutes % 60 === 0 ? `${minutes / 60} h` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`);
+
+/**
+ * What a plan session's teacher reads off the clock: the moment, how the
+ * session is going against its time, and the days ahead. Null when the chat
+ * is not a plan session.
+ */
+export function sessionClock(chatId: string, now: Date = new Date()): string | null {
+	const found = sessionOfChat(chatId);
+	if (!found) return null;
+	const course = syncCourse(found.course);
+	const goal = course.goals.find((g) => g.id === found.goal.id);
+	const session = goal?.plan?.sessions.find((s) => s.chatId === chatId);
+	if (!goal || !session) return null;
+	const index = indexCourse(course);
+	const title = (id: string) => index.byId.get(id)?.title ?? id;
+	const day = dayOf(now);
+	const daysLeft = daysBetween(day, goal.date);
+	const messages = stores.chatStore.getChat(chatId)?.messages ?? [];
+	const times = messages.map((m) => (m as { timestamp?: number }).timestamp ?? 0).filter((t) => t > 0);
+	const spent = studiedMinutes(times, now.getTime());
+	const lines = [
+		`Now: ${clockTime.format(now)}.`,
+		`The exam: ${goal.title} (${course.title}) on ${spoken(goal.date)}, ${daysLeft > 1 ? `${daysLeft} days away` : daysLeft === 1 ? "tomorrow" : daysLeft === 0 ? "today" : "already past"}.`,
+		"",
+		`This session: "${session.title}", planned for ${spoken(session.date)}${session.date === day ? " (today)" : session.date < day ? ` — ${daysBetween(session.date, day)} ${daysBetween(session.date, day) === 1 ? "day" : "days"} late` : " — being done early"}. Planned length: ${minutesWords(session.minutes)}.`,
+		`Time studied in it so far: ${minutesWords(spent)}${times.length > 0 ? `, since ${clockHour.format(new Date(Math.min(...times)))}${dayOf(new Date(Math.min(...times))) !== day ? ` on ${spoken(dayOf(new Date(Math.min(...times))))}` : ""}` : ""}. Breaks longer than 8 minutes are not counted.`,
+	];
+	if (session.kind === "practice") {
+		lines.push(spent >= session.minutes ? "The planned time is used up." : `${minutesWords(session.minutes - spent)} of the planned time remain.`);
+	} else {
+		const checkedIds = new Set(course.evidence.filter((e) => e.chatId === chatId).map((e) => e.conceptId));
+		const done = session.conceptIds.filter((id) => checkedIds.has(id));
+		const togo = session.conceptIds.filter((id) => !checkedIds.has(id));
+		const pace = sessionPace(session, done.length, spent);
+		const standing = pace.standing === "done" ? "Every concept of this session has been checked."
+			: pace.standing === "over time" ? `OVER TIME: the planned ${minutesWords(pace.minutes)} are used up with ${togo.length} ${togo.length === 1 ? "concept" : "concepts"} still to go.`
+			: pace.standing === "behind" ? `BEHIND by about ${minutesWords(-pace.lead)}. To finish in the planned time, each remaining concept has about ${pace.leftPerConcept} min.`
+			: pace.standing === "ahead" ? `AHEAD by about ${minutesWords(pace.lead)}. Each remaining concept has about ${pace.leftPerConcept} min.`
+			: `ON PACE. Each remaining concept has about ${pace.leftPerConcept} min.`;
+		lines.push(
+			`The plan gives it ${session.conceptIds.length} ${session.conceptIds.length === 1 ? "concept" : "concepts"}, about ${Math.round(pace.perConcept)} min each. A concept counts as covered once the learner has answered a check on it.`,
+			`Checked so far (${done.length} of ${session.conceptIds.length}): ${done.map(title).join("; ") || "none yet"}.`,
+			`Still to go (${togo.length}): ${togo.map(title).join("; ") || "nothing"}.`,
+			`Pace: ${standing}`,
+		);
+	}
+	const plan = goal.plan!;
+	const others = plan.sessions.filter((s) => s.id !== session.id && s.status === "upcoming" && isScheduled(s));
+	const overdue = others.filter((s) => s.date < day);
+	const ahead = others.filter((s) => s.date >= day);
+	const one = (s: PlanSession) => `- ${spoken(s.date)}: "${s.title}", ${minutesWords(s.minutes)}${s.kind === "learn" ? `, ${s.conceptIds.length} concepts` : ""}`;
+	lines.push(
+		"",
+		"The rest of the plan:",
+		...(ahead.length > 0 ? ahead.map(one) : ["- nothing else is scheduled before the exam"]),
+		...(overdue.length > 0 ? ["Sessions from earlier days that were not done:", ...overdue.map(one)] : []),
+		plan.pace ? `The whole plan is already on a quicker pass (about ${Math.round(20 * plan.pace)} min for a new concept instead of 20) because the time before the exam is short. There is no slack in the later sessions.` : "",
+		(plan.left ?? []).length > 0 ? `${plan.left!.length} concepts did not fit the plan at all and are not scheduled.` : "",
+	);
+	return lines.filter((line, i, all) => !(line === "" && all[i - 1] === "")).join("\n").trim();
 }
 
 export { currentSession, overdueSessions, goalScope };

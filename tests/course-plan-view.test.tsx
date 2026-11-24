@@ -94,7 +94,7 @@ test("the calendar prompt is copied whole", async () => {
 	await mounted(async (host, render) => {
 		await render(shown(course));
 		const button = host.querySelector('[data-testid="plan-copy"]')!;
-		assert.equal(button.textContent, "Copy a prompt for your calendar");
+		assert.equal(button.textContent, "Copy calendar prompt");
 		await act(async () => button.dispatchEvent(new dom.window.Event("click", { bubbles: true })));
 		assert.match(copied, /^Please add my study plan for Midterm 3 \(Mechanics\) to my calendar\./);
 		assert.match(copied, /\n1\. 2026-11-24 \(Tue\) \| /);

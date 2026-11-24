@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { calendarPrompt, goalScope, planOutline, type CourseIndex, type Goal, type Mastery, type Plan, type UnitOutline } from "@/src/core";
 import { courseApi, needsModels, type CourseView } from "./api";
-import { ErrorNote, LinkButton, Md, Tex, dayMonth, duration, useAction, weekdayShort } from "./parts";
+import { CalendarPlusIcon, CheckIcon } from "lucide-react";
+import { ErrorNote, LinkButton, Md, QuietButton, Tex, dayMonth, duration, useAction, weekdayShort } from "./parts";
 
 /** The days a unit is on: "Tue 24 Nov", or "24 – 26 Nov". */
 function when(unit: UnitOutline): string {
@@ -30,6 +31,11 @@ export function planNote(plan: Plan, goal: Pick<Goal, "title" | "date">, core: R
 		own > 0 ? `${many(own, "of its own concepts is", "of its own concepts are")} left out${earlier > 0 ? " too" : ""}.` : "",
 		`All of it at the usual pace would take about ${duration(roughly(plan.neededMinutesPerDay))} a day.`,
 	].filter(Boolean).join(" ");
+}
+
+/** Put the calendar prompt on the clipboard. */
+export async function copyCalendarPrompt(course: CourseView, goal: Goal): Promise<boolean> {
+	return copyText(calendarPrompt(course, goal, course.today));
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -74,7 +80,7 @@ export function PlanView({ course, goal, index, mastery, adopt, onPick, onChange
 	const core = useMemo(() => new Set(goalScope(course, goal, index).core), [course, goal, index]);
 	const note = planNote(plan, goal, core);
 	const [copied, setCopied] = useState(false);
-	const copy = () => void copyText(calendarPrompt(course, goal, course.today)).then((done) => {
+	const copy = () => void copyCalendarPrompt(course, goal).then((done) => {
 		if (!done) return;
 		setCopied(true);
 		window.setTimeout(() => setCopied(false), 2400);
@@ -82,11 +88,12 @@ export function PlanView({ course, goal, index, mastery, adopt, onPick, onChange
 
 	return (
 		<section className="mt-12" aria-label="The plan" data-testid="plan-view">
-			<div className="flex items-baseline justify-between gap-6">
+			<div className="flex items-center justify-between gap-6">
 				<h3 className="font-ui text-[15px] font-semibold">The plan</h3>
-				<LinkButton onClick={copy} data-testid="plan-copy" title="Copies a prompt you can paste to an assistant that has your calendar. It adds each session and the exam.">
-					{copied ? "Copied. Paste it to your assistant" : "Copy a prompt for your calendar"}
-				</LinkButton>
+				<QuietButton onClick={copy} data-testid="plan-copy" className="gap-2" title="Copies a prompt you can paste to an assistant that has your calendar. It adds each session and the exam.">
+					{copied ? <CheckIcon className="size-4" aria-hidden="true" /> : <CalendarPlusIcon className="size-4" aria-hidden="true" />}
+					{copied ? "Copied. Paste it to your assistant" : "Copy calendar prompt"}
+				</QuietButton>
 			</div>
 			{note && <p className="mt-2 max-w-[38rem] font-ui text-sm leading-relaxed text-muted-foreground" data-testid="plan-note">{note}</p>}
 

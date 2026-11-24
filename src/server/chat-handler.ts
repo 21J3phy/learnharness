@@ -34,6 +34,7 @@ import { collectToolCallIds } from "./pi/call-ids.ts";
 import { providerEventNote } from "../agent/provider-events.ts";
 import { effectiveSettings, stores } from "./stores.ts";
 import { getPluginAgentContributions, getPluginHost } from "./plugins.ts";
+import { withCourseSession } from "./course-session-agent.ts";
 import { preparePluginQuestionSubmission, reconcilePluginQuestionCompatibility, type QuestionTypeResolver } from "./plugin-questions.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
 import { prepareSubmissionImages, prepareSubmissionImageChannels, prepareProblemSubmissionImageChannels, submissionImagePolicyKey } from "./submission-images.ts";
@@ -434,6 +435,8 @@ export async function handleChatInput(
 			// Plugin startup failures must not make the native lesson unusable.
 			console.error("[plugins] Agent contributions unavailable:", error);
 		}
+		// A session of a study plan also gets its clock (course-session-agent.ts).
+		pluginContributions = withCourseSession(pluginContributions, chatId);
 	}
 	const compactedRecord = stores.chatStore.getChat(chatId);
 	if (!compactedRecord) return Response.json({ error: "Unknown chat" }, { status: 404 });

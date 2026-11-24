@@ -20,7 +20,7 @@ import { useFileDrop, type Dropped } from "./dropzone";
 import { sortFiles, sourceSize } from "./files";
 import { GoalForm } from "./goal-form";
 import { DayStrip } from "./plan-strip";
-import { PlanView } from "./plan-view";
+import { PlanView, copyCalendarPrompt } from "./plan-view";
 import { ErrorNote, LinkButton, Meter, MoreMenu, PageFrame, PrimaryButton, Stroke, Tex, awayDays, dayMonth, duration, longDay, useAction, weekdayShort, type MenuItem } from "./parts";
 
 const BUILDING = new Set(["reading", "mapping", "organizing"]);
@@ -93,6 +93,7 @@ export function CoursePage({ id, initial }: { id: string; initial: CourseView })
 		...(!building ? [{ label: "Add material", onSelect: choose }] : []),
 		...(ready && !adding && course.goals.length > 0 ? [{ label: "Add a goal", onSelect: () => setAdding(true) }] : []),
 		...(hasPlan ? [{ label: "Change the plan", onSelect: () => setReplanning(true) }] : []),
+		...(hasPlan && goal ? [{ label: "Copy calendar prompt", onSelect: () => void copyCalendarPrompt(course, goal) }] : []),
 		...(goal && goal.diagnostic?.status !== "writing" ? [{ label: goal.diagnostic ? "Retake the diagnostic" : "Take the diagnostic", onSelect: startDiagnostic }] : []),
 		...(goal ? [{ label: `Remove ${goal.title}`, confirm: "Click again to remove it", danger: true, onSelect: () => void act.run(async () => { adopt(await courseApi.deleteGoal(course.id, goal.id)); setGoalId(null); }) }] : []),
 		{ label: "Delete this course", confirm: "Click again to delete it", danger: true, onSelect: () => void act.run(async () => { await courseApi.remove(course.id); router.replace("/"); }) },

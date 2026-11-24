@@ -24,8 +24,10 @@ import {
 	planOutline,
 	progressOf,
 	publicCourse,
+	sessionPace,
 	slugify,
 	stepOf,
+	studiedMinutes,
 	summarizeCourse,
 	uniqueSlug,
 	type Course,
@@ -376,6 +378,34 @@ test("rebuilding keeps finished sessions and replans the rest from today", () =>
 	assert.ok(upcoming.every((s) => s.date >= "2026-11-22"));
 	assert.ok(!upcoming.filter((s) => s.kind === "learn").flatMap((s) => s.conceptIds).some((id) => done.conceptIds.includes(id)), "what was learned is not replanned");
 	assert.equal(currentSession(second, "2026-11-22")?.status, "upcoming");
+});
+
+test("time studied counts the work, not the breaks", () => {
+	const at = (minute: number) => Date.UTC(2026, 10, 24, 14, 0) + minute * 60_000;
+	assert.equal(studiedMinutes([], at(30)), 0);
+	assert.equal(studiedMinutes([at(0), at(3), at(7), at(12)], at(14)), 14, "steady back-and-forth counts in full");
+	// A forty-minute gap is a break: only the first eight minutes of it count.
+	assert.equal(studiedMinutes([at(0), at(5), at(45), at(50)], at(52)), 5 + 8 + 5 + 2);
+	assert.equal(studiedMinutes([at(0)], at(600)), 8, "a chat left open is not hours of study");
+	assert.equal(studiedMinutes([at(5), at(0), at(90)], at(10)), 10, "order does not matter, and nothing from the future counts");
+});
+
+test("a session's pace is read against the time its plan gave it", () => {
+	const session = { minutes: 120, conceptIds: ["a", "b", "c", "d", "e", "f"] }; // 20 minutes a concept
+	assert.equal(sessionPace(session, 0, 12).standing, "on pace", "part-way through the first concept is not behind");
+	assert.deepEqual(
+		(({ standing, lead, leftPerConcept }) => ({ standing, lead, leftPerConcept }))(sessionPace(session, 2, 40)),
+		{ standing: "on pace", lead: 0, leftPerConcept: 20 },
+	);
+	const behind = sessionPace(session, 1, 55);
+	assert.equal(behind.standing, "behind");
+	assert.equal(behind.lead, -35);
+	assert.equal(behind.leftPerConcept, 13, "65 minutes left for five concepts");
+	assert.equal(sessionPace(session, 3, 40).standing, "ahead");
+	assert.equal(sessionPace(session, 4, 125).standing, "over time");
+	assert.equal(sessionPace(session, 4, 125).leftPerConcept, 0);
+	assert.equal(sessionPace(session, 6, 90).standing, "done");
+	assert.equal(sessionPace(session, 9, 90).checked, 6, "never more than the session holds");
 });
 
 test("an exam that has passed leaves nothing to plan", () => {
